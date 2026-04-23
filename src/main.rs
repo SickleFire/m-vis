@@ -1,13 +1,18 @@
 // src/main.rs
 mod render;
 
-use windows::Win32::System::Threading::GetCurrentProcess;
+use std::env;
+use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,};
 use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_PRIVATE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_GUARD, VirtualQueryEx
+    MEM_COMMIT, MEM_PRIVATE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_GUARD, VirtualQueryEx,
 };
 
 fn main() {
-    let handle = unsafe { GetCurrentProcess() };
+    let args: Vec<String> = env::args().collect();
+
+    let query = &args[1];
+    let pid = query.parse().unwrap();
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid).expect("failed to load process") };
     let mut regions = Vec::new();
     let mut addr: usize = 0;
 
@@ -28,9 +33,13 @@ fn main() {
     }
 
     // legend
-    println!("\x1b[34mI\x1b[0m image  \x1b[32mM\x1b[0m mapped  \x1b[33mX\x1b[0m exec  \x1b[35mP\x1b[0m private  \x1b[90m.\x1b[0m free");
+    println!(
+        "\x1b[34mI\x1b[0m image  \x1b[32mM\x1b[0m mapped  \x1b[33mX\x1b[0m exec  \
+         \x1b[35mH\x1b[0m heap  \x1b[36mS\x1b[0m stack  \x1b[31mG\x1b[0m guard  \x1b[90m.\x1b[0m free"
+    );
     println!();
-    classify(&regions);
+    let labels = classify(&regions);         // capture it
+    render::render_bar(&regions, &labels, 120);  // pass it in
     println!();
 }
 
