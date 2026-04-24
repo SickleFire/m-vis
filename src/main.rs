@@ -11,12 +11,38 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     let query = &args[1];
-    let pid = query.parse().unwrap();
-    let mode = &args[2];
+    
 
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid).expect("failed to load process") };
-    let mut regions = Vec::new();
-    let mut addr: usize = 0;
+    match query.as_str() {
+        "scan" => {
+            let querypid = &args[2];
+            let pid: u32 = querypid.parse().unwrap();
+            let mode = &args[3];
+            scan_with_modes(mode, pid);
+        }
+        "--help" => {
+            println!("commands");
+            println!("scan [pid] [modes]");
+            println!("--help");
+            println!("");
+            println!("modes");
+            println!("-h :Heap Mode");
+            println!("-a :All Mode");
+        }
+        "--version" => {
+            println!("Mvis v0.0.1");
+        }
+        _ => {
+            println!("Invalid Command: {}", query);
+        }
+    }
+}
+
+fn scan_with_modes(mode: &String, pid: u32){
+
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid).expect("failed to load process") };
+        let mut regions = Vec::new();
+        let mut addr: usize = 0;
 
     loop {
         let mut mbi = MEMORY_BASIC_INFORMATION::default();
@@ -28,39 +54,42 @@ fn main() {
                 std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
             )
         };
-        if written == 0 { break; }
-        regions.push(mbi);
-        addr = addr.saturating_add(mbi.RegionSize);
-        if addr == 0 { break; }
+            if written == 0 { break; }
+            regions.push(mbi);
+            addr = addr.saturating_add(mbi.RegionSize);
+            if addr == 0 { break; }
     }
 
-    // legend
-    println!(
-        "\x1b[34mI\x1b[0m image  \x1b[32mM\x1b[0m mapped  \x1b[33mX\x1b[0m exec  \
-         \x1b[35mH\x1b[0m heap  \x1b[36mS\x1b[0m stack  \x1b[31mG\x1b[0m guard  \x1b[90m.\x1b[0m free"
-    );
-    println!();
+        // legend
+        println!(
+            "\x1b[34mI\x1b[0m image  \x1b[32mM\x1b[0m mapped  \x1b[33mX\x1b[0m exec  \
+             \x1b[35mH\x1b[0m heap  \x1b[36mS\x1b[0m stack  \x1b[31mG\x1b[0m guard  \x1b[90m.\x1b[0m free"
+        );
+        println!();
+
     match mode.as_str() {
-    "-h" => {
-        //Heap Mode
-        let blocks = heap_mode(pid);
-        let used: Vec<_> = blocks.iter().filter(|(_, _, is_free)| !is_free).collect();
-        let free: Vec<_> = blocks.iter().filter(|(_, _, is_free)| *is_free).collect();
-    
-        let used_bytes: usize = used.iter().map(|(_, size, _)| size).sum();
-        let free_bytes: usize = free.iter().map(|(_, size, _)| size).sum();
-    
-        println!("total blocks : {}", blocks.len());
-        println!("used blocks  : {} ({} KB)", used.len(), used_bytes / 1024);
-        println!("free blocks  : {} ({} KB)", free.len(), free_bytes / 1024);
-        println!("fragmentation: {:.1}%", free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0);
-            },
-    _    => {
-        let labels = classify(&regions);
-        render::render_bar(&regions, &labels, 120);
+        "-h" => {
+            //Heap Mode
+            let blocks = heap_mode(pid);
+            let used: Vec<_> = blocks.iter().filter(|(_, _, is_free)| !is_free).collect();
+            let free: Vec<_> = blocks.iter().filter(|(_, _, is_free)| *is_free).collect();
+        
+            let used_bytes: usize = used.iter().map(|(_, size, _)| size).sum();
+            let free_bytes: usize = free.iter().map(|(_, size, _)| size).sum();
+        
+            println!("total blocks : {}", blocks.len());
+            println!("used blocks  : {} ({} KB)", used.len(), used_bytes / 1024);
+            println!("free blocks  : {} ({} KB)", free.len(), free_bytes / 1024);
+            println!("fragmentation: {:.1}%", free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0);
+                },
+        "-a"    => {
+            let labels = classify(&regions);
+            render::render_bar(&regions, &labels, 120);
+        }
+        _ =>{
+            println!("Invalid Flag: {}", mode);
+        }
     }
-}
-    println!();
 }
 
 fn heap_mode(pid: u32) -> Vec<(usize, usize, bool)>{
@@ -97,7 +126,6 @@ fn heap_mode(pid: u32) -> Vec<(usize, usize, bool)>{
             }
         }
     }
-
     blocks
 }
 
