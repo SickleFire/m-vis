@@ -11,7 +11,7 @@ use crate::types::RegionState::*;
 
 pub fn scan_with_modes(mode: &String, pid: u32){
 
-        let mut regions = walk_regions(pid);
+        let regions = walk_regions(pid);
 
         // legend
         println!(
@@ -26,10 +26,10 @@ pub fn scan_with_modes(mode: &String, pid: u32){
             let blocks = heap_mode(pid);
             let used: Vec<_> = blocks.iter().filter(|b| !b.is_free).collect();
             let free: Vec<_> = blocks.iter().filter(|b| b.is_free).collect();
-                
+
             let used_bytes: usize = used.iter().map(|b| b.size).sum();
             let free_bytes: usize = free.iter().map(|b| b.size).sum();
-                
+
             println!("total blocks : {}", blocks.len());
             println!("used blocks  : {} ({} KB)", used.len(), used_bytes / 1024);
             println!("free blocks  : {} ({} KB)", free.len(), free_bytes / 1024);
