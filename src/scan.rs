@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::time::Duration;
 use std::thread::sleep;
+use crate::types::RegionEntry;
 use crate::render;
 use crate::os::walk_heap;
 use crate::os::walk_regions;
@@ -9,16 +10,17 @@ use crate::types::RegionKind::*;
 use crate::types::RegionProtect::*;
 use crate::types::RegionState::*;
 
-pub fn scan_with_modes(mode: &String, pid: u32){
+pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output:Option<String>){
 
         let regions = walk_regions(pid);
-
+        if !json {
         // legend
-        println!(
+            println!(
             "\x1b[34mI\x1b[0m image  \x1b[32mM\x1b[0m mapped  \x1b[33mX\x1b[0m exec  \
-             \x1b[35mH\x1b[0m heap  \x1b[36mS\x1b[0m stack  \x1b[31mG\x1b[0m guard  \x1b[90m.\x1b[0m free"
-        );
-        println!();
+                 \x1b[35mH\x1b[0m heap  \x1b[36mS\x1b[0m stack  \x1b[31mG\x1b[0m guard  \x1b[90m.\x1b[0m free"
+            );
+            println!();
+        }
 
     match mode.as_str() {
         "-h" => {
@@ -36,8 +38,33 @@ pub fn scan_with_modes(mode: &String, pid: u32){
             println!("fragmentation: {:.1}%", free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0);
                 },
         "-a"    => {
-            let labels = classify(&regions);
-            render::render_bar(&regions, &labels, 120);
+            if json {
+                let labels = classify(&regions);
+                let entries: Vec<RegionEntry> = regions
+                    .iter()
+                    .zip(labels.iter())
+                    .map(|(r, l)| RegionEntry {
+                        base:    r.base,
+                        size:    r.size,
+                        state:   r.state.clone(),
+                        kind:    r.kind.clone(),
+                        protect: r.protect.clone(),
+                        name:    r.name.clone(),
+                        label:   l.to_string(),
+                    })
+                    .collect();
+                let json_str = serde_json::to_string_pretty(&entries).unwrap();
+    
+                if let Some(path) = output {
+                    std::fs::write(&path, json_str).expect("failed to write file");
+                    println!("saved to {}", path);
+                } else {
+                    println!("{}", json_str);  // default to stdout if no path given
+                }
+            } else{
+                let labels = classify(&regions);
+                render::render_bar(&regions, &labels, 120);
+            }
         }
         "-v" => {
             let labels = classify(&regions);
