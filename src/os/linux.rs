@@ -1,4 +1,4 @@
-use crate::types::{Region, RegionState, RegionKind, RegionProtect};
+use crate::types::{Region, RegionState, RegionKind, RegionProtect, HeapBlock};
 use std::fs;
 
 pub fn walk_regions(pid: u32) -> Vec<Region> {
