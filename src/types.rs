@@ -6,6 +6,7 @@ pub struct Region {
     pub state:   RegionState,
     pub kind:    RegionKind,
     pub protect: RegionProtect,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]

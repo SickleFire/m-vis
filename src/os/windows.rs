@@ -1,4 +1,5 @@
-
+use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
+use windows::Win32::Foundation::HMODULE;
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,};
 use windows::Win32::System::Memory::{
     MEM_COMMIT, MEM_PRIVATE, MEM_RESERVE, MEM_IMAGE, MEM_MAPPED, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_GUARD, PAGE_READWRITE, PAGE_READONLY, VirtualQueryEx
@@ -22,6 +23,7 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
             )
         };
         if written == 0 { break; }
+        
         let region = Region {
             base: mbi.BaseAddress as usize,
             size: mbi.RegionSize,
@@ -47,6 +49,20 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
                 RegionProtect::Readonly
             }else {
                 RegionProtect::Other
+            },
+            name: if mbi.Type == MEM_IMAGE {
+                let hmodule = HMODULE(mbi.AllocationBase as *mut _);
+                let mut buf = vec![0u16; 260];  // MAX_PATH
+                let len = unsafe {
+                    GetModuleFileNameExW(Some(handle), Some(hmodule), &mut buf)
+                };
+                if len > 0 {
+                    String::from_utf16_lossy(&buf[..len as usize])
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
             }
         };
         regions.push(region);

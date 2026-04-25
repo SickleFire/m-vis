@@ -39,6 +39,10 @@ pub fn scan_with_modes(mode: &String, pid: u32){
             let labels = classify(&regions);
             render::render_bar(&regions, &labels, 120);
         }
+        "-v" => {
+            let labels = classify(&regions);
+            render::render_verbose(&regions, &labels);
+        }
         _ =>{
             println!("Invalid Flag: {}", mode);
         }
@@ -79,6 +83,17 @@ fn classify(regions: &[Region]) -> Vec<&str> {
         {
             labels[i] = "heap";
         }
+    }
+
+    // pass 3 — label remaining known types
+    for i in 0..regions.len() {
+        if labels[i] != "?" { continue; }
+        
+        labels[i] = match regions[i].kind {
+            Image   => "image",
+            Mapped  => "mapped",
+            _       => "?",
+        };
     }
 
     // print it

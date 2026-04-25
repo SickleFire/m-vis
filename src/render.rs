@@ -28,3 +28,32 @@ pub fn render_bar(regions: &[Region], labels: &[&str], width: usize) {
 
     println!("{}", bar);
 }
+
+pub fn render_verbose(regions: &[Region], labels: &[&str]) {
+    for (i, region) in regions.iter().enumerate() {
+        if labels[i] == "?" { continue; }
+
+        let name = if region.name.is_empty() {
+            labels[i].to_string()
+        } else {
+            region.name.clone()
+        };
+
+        println!("{:<18} {:<12} {:<16} {}",
+            format!("0x{:x}", region.base),
+            format_size(region.size),
+            labels[i],
+            name,
+        );
+    }
+}
+
+fn format_size(bytes: usize) -> String {
+    if bytes >= 1024 * 1024 {
+        format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))
+    } else if bytes >= 1024 {
+        format!("{:.1}KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{}B", bytes)
+    }
+}

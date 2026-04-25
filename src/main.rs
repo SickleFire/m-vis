@@ -1,5 +1,5 @@
 // src/main.rs
-use memory_visualizer::scan::{scan_with_modes, leak_command, leak_m_command};
+use mvis::scan::{scan_with_modes, leak_command, leak_m_command};
 use std::env;
 
 fn main() {
@@ -38,7 +38,7 @@ fn main() {
             println!("-a :All Mode");
         }
         "--version" => {
-            println!("Mvis v0.0.2");
+            println!("Mvis v0.0.3");
         }
         _ => {
             println!("Invalid Command: {}", query);
