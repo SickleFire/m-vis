@@ -1,5 +1,5 @@
 // src/main.rs
-use memory_visualizer::scan::{scan_with_modes, leak_command};
+use memory_visualizer::scan::{scan_with_modes, leak_command, leak_m_command};
 use std::env;
 
 fn main() {
@@ -19,10 +19,18 @@ fn main() {
             let interval: u64 = args[3].parse().unwrap_or(5);  // seconds between snapshots
             leak_command(pid, interval);
         }
+        "leak-m" => {
+            let queryp = &args[2];
+            let pid = find_pid(queryp.to_string()).expect("failed to find process");
+            let interval: u64 = args[3].parse().unwrap_or(5);  // seconds between snapshots
+            let samples: u64 = args [4].parse().unwrap_or(3);
+            leak_m_command(pid, interval, samples);
+        }
         "--help" => {
             println!("commands");
             println!("scan [app.exe] [modes]");
             println!("leak [app.exe] [duration]");
+            println!("leak-m [app.exe] [duration] [samples]");
             println!("--help");
             println!("");
             println!("modes");
@@ -30,7 +38,7 @@ fn main() {
             println!("-a :All Mode");
         }
         "--version" => {
-            println!("Mvis v0.0.1");
+            println!("Mvis v0.0.2");
         }
         _ => {
             println!("Invalid Command: {}", query);
