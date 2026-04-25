@@ -26,3 +26,4 @@ Clone the repository and build:
 - [GUI frontend for heap analysis]
 - [Heap fragmentation visualization]
 - [Realtime heap scanning]
+- [Cross Platform support for Linux and MacOS]
