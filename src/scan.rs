@@ -94,6 +94,16 @@ fn classify(regions: &[Region]) -> Vec<&str> {
             Mapped  => "mapped",
             _       => "?",
         };
+
+        labels[i] = match regions[i].name.as_str() {
+            "[stack]"        => "stack-live",
+            "[heap]"         => "heap",
+            "[vvar]"         => "mapped",
+            "[vdso]"         => "image",
+            name if name.contains(".so") => "image",
+            name if !name.is_empty()     => "image",
+            _                            => "?",
+        };
     }
 
     // print it

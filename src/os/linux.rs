@@ -41,12 +41,14 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
             RegionKind::Mapped
         };
 
+        let region_name = name.to_string();
         regions.push(Region {
             base: start,
             size: end - start,
             state: RegionState::Committed, // linux maps only shows committed
             kind,
             protect,
+            name: region_name,
         });
     }
 

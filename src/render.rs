@@ -15,6 +15,7 @@ pub fn render_bar(regions: &[Region], labels: &[&str], width: usize) {
             "stack-guard"    => format!("\x1b[31m{}\x1b[0m", "G".repeat(chars)),
             "stack-reserved" => format!("\x1b[90m{}\x1b[0m", "r".repeat(chars)),
             "heap"           => format!("\x1b[35m{}\x1b[0m", "H".repeat(chars)),
+            "image" => format!("\x1b[34m{}\x1b[0m", "I".repeat(chars)),
             _ if mbi.state == Free                               => format!("\x1b[90m{}\x1b[0m", ".".repeat(chars)),
             _ if mbi.kind == Image                             => format!("\x1b[34m{}\x1b[0m", "I".repeat(chars)),
             _ if mbi.kind  == Mapped                            => format!("\x1b[32m{}\x1b[0m", "M".repeat(chars)),
