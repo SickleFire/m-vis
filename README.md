@@ -17,7 +17,7 @@ Mvis is a powerful debugging utility designed to **scan and visualize process me
 - Rust (latest stable version recommended)
 - [sysinfo](https://docs.rs/sysinfo) crate for process inspection
 - [windows]
-- Supported OS: Windows
+- Supported OS: Windows, Linux
 
 ### Installation
 Clone the repository and build:
@@ -26,4 +26,4 @@ Clone the repository and build:
 - [GUI frontend for heap analysis]
 - [Heap fragmentation visualization]
 - [Realtime heap scanning]
-- [Cross Platform support for Linux and MacOS]
+- [Cross Platform support for MacOS]
