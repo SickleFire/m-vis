@@ -27,3 +27,8 @@ Clone the repository and build:
 - [Heap fragmentation visualization]
 - [Realtime heap scanning]
 - [Cross Platform support for MacOS]
+
+
+## License
+
+MIT — see [LICENSE](LICENSE)
