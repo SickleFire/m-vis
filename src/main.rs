@@ -44,7 +44,14 @@ fn run() -> Result<(), String> {
         "list" => {
             use sysinfo::System;
             let sys = System::new_all();
-            let mut processes: Vec<_> = sys.processes().values().collect();
+            let filter = args.get(2).map(|s| s.to_lowercase());
+            let mut processes: Vec<_> = sys.processes().values()
+                .filter(|p| {
+                    filter.as_ref().map_or(true, |f| {
+                        p.name().to_string_lossy().to_lowercase().contains(f)
+                    })
+                })
+                .collect();
             processes.sort_by(|a, b| b.memory().cmp(&a.memory()));
 
             println!("{:<8} {:<30} {}", "PID", "NAME", "MEMORY");
@@ -71,7 +78,7 @@ fn run() -> Result<(), String> {
             println!("leak-m [app.exe] [duration] [samples]");
             println!("help");
             println!("version");
-            println!("list");
+            println!("list [filter]");
             println!("");
             println!("modes");
             println!("-h :Heap Mode");
