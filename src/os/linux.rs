@@ -56,18 +56,32 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
 }
 
 pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
-    let path = format!("/proc/{}/maps", pid);
+    let path = format!("/proc/{}/smaps", pid);
     let content = fs::read_to_string(path).expect("failed to read maps");
     let mut blocks = Vec::new();
+    let mut current_start = 0usize;
+    let mut in_heap = false;
 
     for line in content.lines() {
         if line.contains("[heap]") {
-            let mut parts = line.split_whitespace();
-            let range = parts.next().unwrap_or("");
-            let mut range_parts = range.split('-');
-            let start = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
-            let end   = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
-            blocks.push(HeapBlock { address: start, size: end - start, is_free: false });
+            in_heap = true;
+            let range = line.split_whitespace().next().unwrap_or("");
+            let mut parts = range.split('-');
+            current_start = usize::from_str_radix(
+                parts.next().unwrap_or("0"), 16).unwrap_or(0);
+        } else if in_heap && line.starts_with("Size:") {
+            let kb: usize = line
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0);
+            blocks.push(HeapBlock {
+                address: current_start,
+                size: kb * 1024,
+                is_free: false,
+            });
+            in_heap = false;
         }
     }
     blocks

@@ -37,3 +37,10 @@ pub struct HeapBlock {
     pub size:    usize,
     pub is_free: bool,
 }
+
+#[derive(Clone, Debug, Serialize)]
+pub struct HeapStats {
+    pub address: usize,
+    pub size:    usize,
+    pub rss:     usize,  // resident set size — actually in RAM
+}

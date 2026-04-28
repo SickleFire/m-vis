@@ -161,20 +161,47 @@ fn diff_snapshots(
         .collect()
 }
 
-pub fn leak_command (pid:u32, interval: u64){
+pub fn diff_heap_size(
+    before: &[HeapBlock],
+    after:  &[HeapBlock],
+) -> usize {
+    let before_total: usize = before.iter().map(|b| b.size).sum();
+    let after_total:  usize = after.iter().map(|b| b.size).sum();
+    if after_total > before_total {
+        after_total - before_total
+    } else {
+        0
+    }
+}
+
+pub fn leak_command(pid:u32, interval: u64){
     let snapshot1 = heap_mode(pid);
     let dur = Duration::new(interval, 0);
     sleep(dur);
     let snapshot2 = heap_mode(pid);
-    let results = diff_snapshots(&snapshot1, &snapshot2);
-    let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
-    println!("snapshot 1 → snapshot 2 ({}s interval)", interval);
-    println!("new allocations : {}", results.len());
-    println!("new bytes       : {} KB", new_bytes / 1024);
-    if results.is_empty() {
-        println!("no leak detected");
-    } else {
-        println!("\x1b[31mleak suspected — {} KB of new allocations\x1b[0m", new_bytes / 1024);
+    
+    #[cfg(target_os = "linux")]
+    {
+        let growth = diff_heap_size(&snapshot1, &snapshot2);
+        println!("heap growth: {} KB", growth / 1024);
+        if growth > 0 {
+            println!("\x1b[31mleak suspected — heap grew by {} KB\x1b[0m", growth / 1024);
+        } else {
+            println!("no leak detected");
+        }
+    }
+
+    #[cfg(target_os = "windows")]{
+        let results = diff_snapshots(&snapshot1, &snapshot2);
+        let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
+        println!("snapshot 1 → snapshot 2 ({}s interval)", interval);
+        println!("new allocations : {}", results.len());
+        println!("new bytes       : {} KB", new_bytes / 1024);
+        if results.is_empty() {
+            println!("no leak detected");
+        } else {
+            println!("\x1b[31mleak suspected — {} KB of new allocations\x1b[0m", new_bytes / 1024);
+        }
     }
 }
 
