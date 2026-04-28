@@ -44,31 +44,41 @@ fn run() -> Result<(), String> {
         "list" => {
             use sysinfo::System;
             let sys = System::new_all();
-            println!("[PID]  [NAME]");
-            for (pid, process) in sys.processes(){
-                //TODO sort by memory usage
-                println!("{} {:?}", pid, process.name());
+            let mut processes: Vec<_> = sys.processes().values().collect();
+            processes.sort_by(|a, b| b.memory().cmp(&a.memory()));
+
+            println!("{:<8} {:<30} {}", "PID", "NAME", "MEMORY");
+            println!("{}", "-".repeat(50));
+            for process in processes.iter().take(20) {
+                println!("{:<8} {:<30} {} MB",
+                    process.pid().as_u32(),
+                    process.name().to_string_lossy(),
+                    process.memory() / 1024 / 1024,
+                );
             }
         }
         "etw-leak" => {
+            //Deprecated
             if !is_elevated() {
                 return Err("etw-leak requires administrator privileges\nrun: sudo mvis etw-leak <process>".to_string());
             }
             // rest of implementation
         }
-        "--help" => {
+        "help" | "--help" | "-h" => {
             println!("commands");
             println!("scan [app.exe] [modes] [json] [output]");
             println!("leak [app.exe] [duration]");
             println!("leak-m [app.exe] [duration] [samples]");
-            println!("--help");
+            println!("help");
+            println!("version");
+            println!("list");
             println!("");
             println!("modes");
             println!("-h :Heap Mode");
             println!("-a :All Mode");
             println!("-v :Verbose Mode");
         }
-        "--version" => {
+        "version" | "--version" | "-v" => {
             println!("Mvis v0.0.5");
         }
         _ => {
@@ -83,7 +93,7 @@ fn find_pid(name: String) -> Result<u32, String>{
     let sys = System::new_all();
     sys.processes()
         .values()
-        .find(|p| p.name().to_string_lossy() == name)
+        .find(|p| p.name().to_string_lossy().to_lowercase() == name.to_lowercase())
         .map(|p| p.pid().as_u32())
         .ok_or_else(|| format!("process '{}' not found", name))
 }
@@ -94,6 +104,7 @@ fn get_arg<'a>(args: &'a[String], index: usize, name: &str) -> Result<&'a str, S
         .ok_or_else(|| format!("missing argument: {}", name))
 }
 
+#[cfg(target_os = "windows")]
 fn is_elevated() -> bool {
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Security::{
@@ -125,4 +136,10 @@ fn is_elevated() -> bool {
 
         elevation.TokenIsElevated != 0
     }
+}
+
+#[cfg(target_os = "linux")]
+fn is_elevated() -> bool {
+    // on linux check if root
+    unsafe { libc::geteuid() == 0 }
 }
