@@ -23,3 +23,10 @@ features = [
     "Win32_System_ProcessStatus",
     "Win32_System_Diagnostics_Etw",
 ]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = {version = "0.31.2", features = ["ptrace",]}
+addr2line = "0.24"
+object = "0.36"
+memmap2 = "0.9"
+gimli     = "0.31"

@@ -177,6 +177,22 @@ pub fn diff_heap_size(
 pub fn leak_command(pid:u32, interval: u64){
     let snapshot1 = heap_mode(pid);
     let dur = Duration::new(interval, 0);
+    #[cfg(target_os = "linux")]
+    let regions = walk_regions(pid);
+
+    #[cfg(target_os = "linux")]
+    let trace = {
+        match crate::stack_trace::StackTrace::capture(pid, &regions) {
+            Ok(t) => {
+                eprintln!("[dbg] stack captured: {} frames", t.frames.len());
+                Ok(t)
+            }
+            Err(e) => {
+                eprintln!("[dbg] stack capture failed: {}", e);
+                Err(e)
+            }
+        }
+    };
     sleep(dur);
     let snapshot2 = heap_mode(pid);
     
@@ -186,6 +202,13 @@ pub fn leak_command(pid:u32, interval: u64){
         println!("heap growth: {} KB", growth / 1024);
         if growth > 0 {
             println!("\x1b[31mleak suspected — heap grew by {} KB\x1b[0m", growth / 1024);
+
+            if let Ok(t) = trace {
+                println!("\ncall stack at time of snapshot:");
+                for (i, frame) in t.frames.iter().enumerate() {
+                    println!("  #{:<2} {}", i, frame.symbol);
+                }
+            }
         } else {
             println!("no leak detected");
         }
