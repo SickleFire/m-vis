@@ -190,3 +190,12 @@ mod linux {
         frames
     }
 }
+
+#[cfg(target_os = "windows")]
+mod windows {
+    use crate::stack_trace::StackTrace;
+
+    pub fn capture(pid:u32, regions: &[crate::types::Region]) -> Result<StackTrace, String>{
+        todo!();
+    }
+}
