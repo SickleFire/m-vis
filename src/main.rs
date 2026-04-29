@@ -86,7 +86,7 @@ fn run() -> Result<(), String> {
             println!("-v :Verbose Mode");
         }
         "version" | "--version" | "-v" => {
-            println!("Mvis v0.0.5");
+            println!("Mvis v0.0.6");
         }
         _ => {
             return Err(format!("unknown command '{}' — run 'mvis --help'", command));
