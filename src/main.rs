@@ -1,4 +1,15 @@
-// src/main.rs
+//! # mvis - Memory Visualizer
+//! 
+//! A cross-platform memory diagnostic CLI tool.
+//! 
+//! ## Usage
+//! ```
+//! mvis scan <process> <mode>
+//! mvis leak <process> <interval>
+//! mvis leak-m <process> <interval> <samples>
+//! mvis list [filter]
+//! ```
+//! 
 use mvis::scan::{scan_with_modes, leak_command, leak_m_command};
 use std::env;
 
@@ -9,6 +20,10 @@ fn main() {
     }
 }
 
+/// Entry point for all CLI commands.
+/// 
+/// Parses arguments and dispatches to the appropriate handler.
+/// Returns `Err(String)` with a human-readable message on failure.
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
     let command = get_arg(&args, 1, "command")?;
@@ -64,13 +79,6 @@ fn run() -> Result<(), String> {
                 );
             }
         }
-        "etw-leak" => {
-            //Deprecated
-            if !is_elevated() {
-                return Err("etw-leak requires administrator privileges\nrun: sudo mvis etw-leak <process>".to_string());
-            }
-            // rest of implementation
-        }
         "help" | "--help" | "-h" => {
             println!("commands");
             println!("scan [app.exe] [modes] [json] [output]");
@@ -95,6 +103,19 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+/// Finds a process PID by name, case-insensitive.
+/// 
+/// # Arguments
+/// * `name` - The process name to search for (e.g. "notepad.exe")
+/// 
+/// # Returns
+/// * `Ok(u32)` - The PID of the first matching process
+/// * `Err(String)` - If no process with that name is found
+/// 
+/// # Example
+/// ```
+/// let pid = find_pid("notepad.exe".to_string())?;
+/// ```
 fn find_pid(name: String) -> Result<u32, String>{
     use sysinfo::System;
     let sys = System::new_all();
@@ -105,12 +126,26 @@ fn find_pid(name: String) -> Result<u32, String>{
         .ok_or_else(|| format!("process '{}' not found", name))
 }
 
+/// Gets a CLI argument by index.
+/// 
+/// # Arguments
+/// * `args` - The full argument list
+/// * `index` - Which argument to get
+/// * `name` - Human-readable name for error messages
+/// 
+/// # Returns
+/// * `Ok(&str)` - The argument value
+/// * `Err(String)` - If the argument is missing, with a helpful message
 fn get_arg<'a>(args: &'a[String], index: usize, name: &str) -> Result<&'a str, String> {
     args.get(index)
         .map(|s| s.as_str())
         .ok_or_else(|| format!("missing argument: {}", name))
 }
 
+/// Checks if the current process is running with elevated privileges.
+/// 
+/// On Windows: checks for admin token elevation.
+/// On Linux: checks if effective user ID is root (0).
 #[cfg(target_os = "windows")]
 fn is_elevated() -> bool {
     use windows::Win32::Foundation::HANDLE;

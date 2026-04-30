@@ -10,6 +10,13 @@ use crate::types::RegionKind::*;
 use crate::types::RegionProtect::*;
 use crate::types::RegionState::*;
 
+/// Scans a process and displays memory information.
+/// 
+/// # Arguments
+/// * `mode` - Display mode: "-a" for all, "-h" for heap, "-v" for verbose
+/// * `pid` - Target process ID
+/// * `json` - Whether to output JSON
+/// * `output` - Optional file path for JSON output
 pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output:Option<String>){
 
         let regions = walk_regions(pid);

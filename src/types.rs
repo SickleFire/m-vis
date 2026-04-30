@@ -1,6 +1,9 @@
 use serde::Serialize;
 
-
+/// A single memory region in a process's address space.
+/// 
+/// Corresponds to one entry from `VirtualQueryEx` on Windows
+/// or one line from `/proc/<pid>/maps` on Linux.
 #[derive(Clone, Debug, Serialize)]
 pub struct Region {
     pub base:    usize,
