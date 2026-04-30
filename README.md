@@ -1,4 +1,4 @@
-# Mvis 
+# mvis 
 **Memory Visualizer Debugger Tool**
 
 mvis is a lightweight cross-platform debugging utility designed to **scan and visualize process memory allocation**, down to the **heap level**. It helps developers and systems programmers gain deep insights into how memory is being used by running processes.
@@ -9,6 +9,9 @@ Existing tools are either platform-specific (Valgrind, WinDbg) or
 too complex for quick diagnostics. mvis gives you memory insights 
 with a single command on any platform.
 
+## Status
+Early but functional. Core scanning and leak detection work on both platforms. See the roadmap below for what's coming.
+
 ---
 
 ##  Features
@@ -18,6 +21,11 @@ with a single command on any platform.
 -  **Memory Leak Detection**: Identify and monitor processes with growing, unreleased allocations.
 -  **Stack Tracing**: Capture call stacks to pinpoint allocation sources and trace execution paths. (Linux)
 -  **Supported OS**: Windows, Linux
+
+## Known Limitations
+- Windows stack frames resolve to module+offset, not function names yet
+- ptrace leak tracing (Linux) requires sudo or ptrace_scope=0
+- macOS not supported yet
 
 ## Usage
 ```powershell
@@ -53,8 +61,12 @@ cargo build --release
 - [ ] Realtime heap scanning
 - [ ] Cross Platform support for MacOS
 - [ ] Performance improvements
-- [ ] Stack traces support for windows
+- [ ] Stack trace support for windows
 - [x] Json exports
+
+### Known Issues
+- [ ] Heap walking is slow
+- [ ] Missing stack trace for windows
 
 ## License
 
