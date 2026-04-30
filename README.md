@@ -23,7 +23,6 @@ Early but functional. Core scanning and leak detection work on both platforms. S
 -  **Supported OS**: Windows, Linux
 
 ## Known Limitations
-- Linux stack frames resolve to addresses, not function names yet
 - ptrace leak tracing (Linux) requires sudo or ptrace_scope=0
 - macOS not supported yet
 
@@ -67,6 +66,7 @@ cargo build --release
 ### Known Issues
 - [ ] Heap walking is slow
 - [ ] Missing stack trace for windows
+- [ ] Linux stack frames resolve to addresses, not function names yet
 
 ## License
 
