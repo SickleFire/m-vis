@@ -136,7 +136,12 @@ fn classify(regions: &[Region]) -> Vec<&str> {
             "[vdso]"         => "image",
             name if name.contains(".so") => "image",
             name if !name.is_empty()     => "image",
-            _                            => "?",
+            _ => match regions[i].kind {
+                Image  => "image",
+                Mapped => "mapped",
+                _ => "?",
+            }
+            
         };
     }
 
@@ -252,4 +257,183 @@ pub fn leak_m_command (pid:u32, interval: u64, samples:u64){
 
                 prev = next;
             }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{HeapBlock, Region, RegionKind, RegionState, RegionProtect};
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    fn make_block(address: usize, size: usize, is_free: bool) -> HeapBlock {
+        HeapBlock { address, size, is_free }
+    }
+
+    fn make_region(base: usize, size: usize, state: RegionState, kind: RegionKind, protect: RegionProtect, name: &str) -> Region {
+        Region { base, size, state, kind, protect, name: name.to_string() }
+    }
+
+    // ── diff_heap_size ────────────────────────────────────────────────────────
+
+    #[test]
+    fn heap_growth_detected() {
+        let before = vec![make_block(0x1000, 4096, false)];
+        let after  = vec![make_block(0x1000, 4096, false), make_block(0x2000, 2048, false)];
+        assert_eq!(diff_heap_size(&before, &after), 2048);
+    }
+
+    #[test]
+    fn no_growth_when_equal() {
+        let snap = vec![make_block(0x1000, 4096, false)];
+        assert_eq!(diff_heap_size(&snap, &snap), 0);
+    }
+
+    #[test]
+    fn no_growth_when_shrinks() {
+        let before = vec![make_block(0x1000, 8192, false)];
+        let after  = vec![make_block(0x1000, 4096, false)];
+        // shrinkage returns 0, not a wrapping negative
+        assert_eq!(diff_heap_size(&before, &after), 0);
+    }
+
+    #[test]
+    fn growth_counts_free_blocks_too() {
+        // diff_heap_size sums ALL blocks regardless of is_free
+        let before = vec![make_block(0x1000, 1024, false)];
+        let after  = vec![make_block(0x1000, 1024, false), make_block(0x2000, 512, true)];
+        assert_eq!(diff_heap_size(&before, &after), 512);
+    }
+
+    // ── diff_snapshots ────────────────────────────────────────────────────────
+
+    #[test]
+    fn new_allocs_detected() {
+        let before = vec![make_block(0x1000, 64, false)];
+        let after  = vec![
+            make_block(0x1000, 64,  false),
+            make_block(0x2000, 128, false), // new
+        ];
+        let results = diff_snapshots(&before, &after);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], (0x2000, 128));
+    }
+
+    #[test]
+    fn no_false_positives_on_same_snapshot() {
+        let snap = vec![make_block(0x1000, 64, false), make_block(0x2000, 128, false)];
+        assert!(diff_snapshots(&snap, &snap).is_empty());
+    }
+
+    #[test]
+    fn free_blocks_excluded_from_diff() {
+        let before = vec![];
+        // a new block that is free should NOT appear in leak diff
+        let after = vec![make_block(0x3000, 256, true)];
+        assert!(diff_snapshots(&before, &after).is_empty());
+    }
+
+    #[test]
+    fn multiple_new_allocs_all_reported() {
+        let before = vec![];
+        let after  = vec![
+            make_block(0x1000, 64,  false),
+            make_block(0x2000, 128, false),
+            make_block(0x3000, 32,  false),
+        ];
+        let results = diff_snapshots(&before, &after);
+        assert_eq!(results.len(), 3);
+        let total: usize = results.iter().map(|(_, s)| s).sum();
+        assert_eq!(total, 64 + 128 + 32);
+    }
+
+    // ── classify ──────────────────────────────────────────────────────────────
+    // classify is private; these tests live in the same module so they can see it.
+
+    #[test]
+    fn stack_trio_labeled_correctly() {
+        let regions = vec![
+            make_region(0x7ff0_0000, 4096,  Reserved,  Private, ReadWrite, ""),  // stack-reserved
+            make_region(0x7ff1_0000, 4096,  Committed, Private, Guard,     ""),  // stack-guard  (pass 1 trigger)
+            make_region(0x7ff2_0000, 65536, Committed, Private, ReadWrite, ""),  // stack-live
+        ];
+        let labels = classify(&regions);
+        assert_eq!(labels[0], "stack-reserved");
+        assert_eq!(labels[1], "stack-guard");
+        assert_eq!(labels[2], "stack-live");
+    }
+
+    #[test]
+    fn heap_fallback_for_private_committed() {
+        let regions = vec![
+            make_region(0x0030_0000, 8192, Committed, Private, ReadWrite, ""),
+        ];
+        let labels = classify(&regions);
+        assert_eq!(labels[0], "heap");
+    }
+
+    #[test]
+    fn named_heap_region_labeled_heap() {
+        let regions = vec![
+            make_region(0x0040_0000, 4096, Committed, Private, ReadWrite, "[heap]"),
+        ];
+        let labels = classify(&regions);
+        assert_eq!(labels[0], "heap");
+    }
+
+    #[test]
+    fn so_file_labeled_image() {
+        let regions = vec![
+            make_region(0x7f00_0000, 4096, Committed, Image, Execute, "/usr/lib/libc.so.6"),
+        ];
+        let labels = classify(&regions);
+        assert_eq!(labels[0], "image");
+    }
+
+    #[test]
+    fn mapped_kind_labeled_mapped() {
+        let regions = vec![
+            make_region(0x0010_0000, 4096, Committed, Mapped, Readonly, ""),
+        ];
+        let labels = classify(&regions);
+        assert_eq!(labels[0], "mapped");
+    }
+
+    #[test]
+    fn classify_output_length_matches_input() {
+        let regions = vec![
+            make_region(0x1000, 4096, Committed, Private, ReadWrite, ""),
+            make_region(0x2000, 4096, Committed, Mapped,  Readonly,  ""),
+            make_region(0x3000, 4096, Reserved,  Private, NoAccess,  ""),
+        ];
+        let labels = classify(&regions);
+        assert_eq!(labels.len(), regions.len());
+    }
+
+    // ── scan_with_modes (smoke test — uses live process) ─────────────────────
+
+    #[test]
+    fn scan_all_mode_does_not_panic() {
+        let pid = std::process::id();
+        // just make sure it runs without panicking; we don't validate output
+        scan_with_modes(&"-a".to_string(), pid, false, None);
+    }
+
+    #[test]
+    fn scan_verbose_mode_does_not_panic() {
+        let pid = std::process::id();
+        scan_with_modes(&"-v".to_string(), pid, false, None);
+    }
+
+    #[test]
+    fn scan_invalid_mode_does_not_panic() {
+        let pid = std::process::id();
+        scan_with_modes(&"-z".to_string(), pid, false, None);
+    }
+
+    #[test]
+    fn scan_json_to_stdout_does_not_panic() {
+        let pid = std::process::id();
+        scan_with_modes(&"-a".to_string(), pid, true, None);
+    }
 }
