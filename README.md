@@ -43,6 +43,24 @@ mvis leak-m notepad.exe 10 3
 # list processes
 mvis list
 ```
+### Examples
+```powershell
+mvis leak leaking_app.exe 10
+```
+### Output:
+<img width="570" height="77" alt="Screenshot 2026-05-01 181525" src="https://github.com/user-attachments/assets/fbef4565-45b3-4388-8c6a-85f8d0df89f5" /> <br>
+
+```powershell
+mvis scan myapp.exe -a
+```
+
+<img width="579" height="133" alt="Screenshot 2026-05-01 182001" src="https://github.com/user-attachments/assets/f9bd515e-9cc7-49f8-8cf5-9d2e79ab8f22" />
+. <br>
+. <br>
+. <br>
+<img width="1091" height="267" alt="Screenshot 2026-05-01 181929" src="https://github.com/user-attachments/assets/52563bf0-7b6b-4875-8eb1-ed692622aed5" />
+
+
 ---
 
 ## Installation
