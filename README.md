@@ -1,13 +1,17 @@
 # mvis 
-**Memory Visualizer Debugger Tool**
 
-mvis is a lightweight cross-platform debugging utility designed to **scan and visualize process memory allocation**, down to the **heap level**. It helps developers and systems programmers gain deep insights into how memory is being used by running processes.
+mvis: Memory debugging for developers who just want answers.
+Simple. Fast. Works everywhere.
 
 ## Why mvis?
 
 Existing tools are either platform-specific (Valgrind, WinDbg) or 
 too complex for quick diagnostics. mvis gives you memory insights 
 with a single command on any platform.
+
+Our design philosophy is built around simplicity and accessibility because **We believe memory debugging should be accessible, not a PhD requirement.**
+
+**"One command. All platforms. No configuration hell."**
 
 ## Status
 Early but functional. Core scanning and leak detection work on both platforms. See the roadmap below for what's coming.
