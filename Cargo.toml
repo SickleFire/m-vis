@@ -1,6 +1,6 @@
 [package]
 name = "mvis"
-version = "0.0.6"
+version = "0.1.0"
 edition = "2024"
 
 [dependencies]
@@ -20,6 +20,7 @@ features = [
     "Win32_Graphics_Gdi",
     "Win32_System_LibraryLoader",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_SystemInformation",
     "Win32_System_ProcessStatus",
     "Win32_System_Diagnostics_Etw",
 ]

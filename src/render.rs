@@ -11,17 +11,17 @@ pub fn render_bar(regions: &[Region], labels: &[&str], width: usize) {
         let chars = ((mbi.size as f64 / total as f64) * width as f64).max(1.0) as usize;
 
         let symbol = match labels[i] {
-            "stack-live"     => format!("\x1b[36m{}\x1b[0m", "S".repeat(chars)),
-            "stack-guard"    => format!("\x1b[31m{}\x1b[0m", "G".repeat(chars)),
+            "stack-live" => format!("\x1b[36m{}\x1b[0m", "S".repeat(chars)),
+            "stack-guard" => format!("\x1b[31m{}\x1b[0m", "G".repeat(chars)),
             "stack-reserved" => format!("\x1b[90m{}\x1b[0m", "r".repeat(chars)),
-            "heap"           => format!("\x1b[35m{}\x1b[0m", "H".repeat(chars)),
+            "heap" => format!("\x1b[35m{}\x1b[0m", "H".repeat(chars)),
             "image" => format!("\x1b[34m{}\x1b[0m", "I".repeat(chars)),
-            _ if mbi.state == Free                               => format!("\x1b[90m{}\x1b[0m", ".".repeat(chars)),
-            _ if mbi.kind == Image                             => format!("\x1b[34m{}\x1b[0m", "I".repeat(chars)),
-            _ if mbi.kind  == Mapped                            => format!("\x1b[32m{}\x1b[0m", "M".repeat(chars)),
-            _ if mbi.protect == Execute                  => format!("\x1b[33m{}\x1b[0m", "X".repeat(chars)),
-            _ if mbi.state == Reserved                             => format!("\x1b[90m{}\x1b[0m", "r".repeat(chars)),
-            _                                                         => format!("\x1b[90m{}\x1b[0m", "?".repeat(chars)),
+            _ if mbi.state == Free => format!("\x1b[90m{}\x1b[0m", ".".repeat(chars)),
+            _ if mbi.kind == Image => format!("\x1b[34m{}\x1b[0m", "I".repeat(chars)),
+            _ if mbi.kind == Mapped => format!("\x1b[32m{}\x1b[0m", "M".repeat(chars)),
+            _ if mbi.protect == Execute => format!("\x1b[33m{}\x1b[0m", "X".repeat(chars)),
+            _ if mbi.state == Reserved => format!("\x1b[90m{}\x1b[0m", "r".repeat(chars)),
+            _ => format!("\x1b[90m{}\x1b[0m", "?".repeat(chars)),
         };
 
         bar.push_str(&symbol);
@@ -32,7 +32,9 @@ pub fn render_bar(regions: &[Region], labels: &[&str], width: usize) {
 
 pub fn render_verbose(regions: &[Region], labels: &[&str]) {
     for (i, region) in regions.iter().enumerate() {
-        if labels[i] == "?" { continue; }
+        if labels[i] == "?" {
+            continue;
+        }
 
         let name = if region.name.is_empty() {
             labels[i].to_string()
@@ -40,7 +42,8 @@ pub fn render_verbose(regions: &[Region], labels: &[&str]) {
             region.name.clone()
         };
 
-        println!("{:<18} {:<12} {:<16} {}",
+        println!(
+            "{:<18} {:<12} {:<16} {}",
             format!("0x{:x}", region.base),
             format_size(region.size),
             labels[i],

@@ -1,33 +1,32 @@
-use std::collections::HashSet;
-use std::time::Duration;
-use std::thread::sleep;
-use crate::types::RegionEntry;
-use crate::render;
 use crate::os::walk_heap;
 use crate::os::walk_regions;
-use crate::types::{HeapBlock, Region};
+use crate::render;
+use crate::types::RegionEntry;
 use crate::types::RegionKind::*;
 use crate::types::RegionProtect::*;
 use crate::types::RegionState::*;
+use crate::types::{HeapBlock, Region};
+use std::collections::HashSet;
+use std::thread::sleep;
+use std::time::Duration;
 
 /// Scans a process and displays memory information.
-/// 
+///
 /// # Arguments
 /// * `mode` - Display mode: "-a" for all, "-h" for heap, "-v" for verbose
 /// * `pid` - Target process ID
 /// * `json` - Whether to output JSON
 /// * `output` - Optional file path for JSON output
-pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output:Option<String>){
-
-        let regions = walk_regions(pid);
-        if !json {
+pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<String>) {
+    let regions = walk_regions(pid);
+    if !json {
         // legend
-            println!(
+        println!(
             "\x1b[34mI\x1b[0m image  \x1b[32mM\x1b[0m mapped  \x1b[33mX\x1b[0m exec  \
                  \x1b[35mH\x1b[0m heap  \x1b[36mS\x1b[0m stack  \x1b[31mG\x1b[0m guard  \x1b[90m.\x1b[0m free"
-            );
-            println!();
-        }
+        );
+        println!();
+    }
 
     match mode.as_str() {
         "-h" => {
@@ -42,33 +41,36 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output:Option<String
             println!("total blocks : {}", blocks.len());
             println!("used blocks  : {} ({} KB)", used.len(), used_bytes / 1024);
             println!("free blocks  : {} ({} KB)", free.len(), free_bytes / 1024);
-            println!("fragmentation: {:.1}%", free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0);
-                },
-        "-a"    => {
+            println!(
+                "fragmentation: {:.1}%",
+                free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0
+            );
+        }
+        "-a" => {
             if json {
                 let labels = classify(&regions);
                 let entries: Vec<RegionEntry> = regions
                     .iter()
                     .zip(labels.iter())
                     .map(|(r, l)| RegionEntry {
-                        base:    r.base,
-                        size:    r.size,
-                        state:   r.state.clone(),
-                        kind:    r.kind.clone(),
+                        base: r.base,
+                        size: r.size,
+                        state: r.state.clone(),
+                        kind: r.kind.clone(),
                         protect: r.protect.clone(),
-                        name:    r.name.clone(),
-                        label:   l.to_string(),
+                        name: r.name.clone(),
+                        label: l.to_string(),
                     })
                     .collect();
                 let json_str = serde_json::to_string_pretty(&entries).unwrap();
-    
+
                 if let Some(path) = output {
                     std::fs::write(&path, json_str).expect("failed to write file");
                     println!("saved to {}", path);
                 } else {
-                    println!("{}", json_str);  // default to stdout if no path given
+                    println!("{}", json_str); // default to stdout if no path given
                 }
-            } else{
+            } else {
                 let labels = classify(&regions);
                 render::render_bar(&regions, &labels, 120);
             }
@@ -77,13 +79,13 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output:Option<String
             let labels = classify(&regions);
             render::render_verbose(&regions, &labels);
         }
-        _ =>{
+        _ => {
             println!("Invalid Flag: {}", mode);
         }
     }
 }
 
-fn heap_mode(pid: u32) -> Vec<HeapBlock>{
+fn heap_mode(pid: u32) -> Vec<HeapBlock> {
     let heaps = walk_heap(pid);
     heaps
 }
@@ -111,37 +113,35 @@ fn classify(regions: &[Region]) -> Vec<&str> {
 
     // pass 2 — only unlabeled private+committed regions are heap
     for i in 0..regions.len() {
-        if labels[i] == "?"
-            && regions[i].state == Committed
-            && regions[i].kind == Private
-        {
+        if labels[i] == "?" && regions[i].state == Committed && regions[i].kind == Private {
             labels[i] = "heap";
         }
     }
 
     // pass 3 — label remaining known types
     for i in 0..regions.len() {
-        if labels[i] != "?" { continue; }
-        
+        if labels[i] != "?" {
+            continue;
+        }
+
         labels[i] = match regions[i].kind {
-            Image   => "image",
-            Mapped  => "mapped",
-            _       => "?",
+            Image => "image",
+            Mapped => "mapped",
+            _ => "?",
         };
 
         labels[i] = match regions[i].name.as_str() {
-            "[stack]"        => "stack-live",
-            "[heap]"         => "heap",
-            "[vvar]"         => "mapped",
-            "[vdso]"         => "image",
+            "[stack]" => "stack-live",
+            "[heap]" => "heap",
+            "[vvar]" => "mapped",
+            "[vdso]" => "image",
             name if name.contains(".so") => "image",
-            name if !name.is_empty()     => "image",
+            name if !name.is_empty() => "image",
             _ => match regions[i].kind {
-                Image  => "image",
+                Image => "image",
                 Mapped => "mapped",
                 _ => "?",
-            }
-            
+            },
         };
     }
 
@@ -155,10 +155,7 @@ fn classify(regions: &[Region]) -> Vec<&str> {
     labels
 }
 
-fn diff_snapshots(
-    before: &[HeapBlock],
-    after:  &[HeapBlock],
-) -> Vec<(usize, usize)> {
+fn diff_snapshots(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usize)> {
     let before_addrs: HashSet<usize> = before
         .iter()
         .filter(|b| !b.is_free)
@@ -173,12 +170,9 @@ fn diff_snapshots(
         .collect()
 }
 
-pub fn diff_heap_size(
-    before: &[HeapBlock],
-    after:  &[HeapBlock],
-) -> usize {
+pub fn diff_heap_size(before: &[HeapBlock], after: &[HeapBlock]) -> usize {
     let before_total: usize = before.iter().map(|b| b.size).sum();
-    let after_total:  usize = after.iter().map(|b| b.size).sum();
+    let after_total: usize = after.iter().map(|b| b.size).sum();
     if after_total > before_total {
         after_total - before_total
     } else {
@@ -186,7 +180,7 @@ pub fn diff_heap_size(
     }
 }
 
-pub fn leak_command(pid:u32, interval: u64){
+pub fn leak_command(pid: u32, interval: u64) {
     let snapshot1 = heap_mode(pid);
     let dur = Duration::new(interval, 0);
     #[cfg(target_os = "linux")]
@@ -207,13 +201,16 @@ pub fn leak_command(pid:u32, interval: u64){
     };
     sleep(dur);
     let snapshot2 = heap_mode(pid);
-    
+
     #[cfg(target_os = "linux")]
     {
         let growth = diff_heap_size(&snapshot1, &snapshot2);
         println!("heap growth: {} KB", growth / 1024);
         if growth > 0 {
-            println!("\x1b[31mleak suspected — heap grew by {} KB\x1b[0m", growth / 1024);
+            println!(
+                "\x1b[31mleak suspected — heap grew by {} KB\x1b[0m",
+                growth / 1024
+            );
 
             if let Ok(t) = trace {
                 println!("\ncall stack at time of snapshot:");
@@ -226,7 +223,8 @@ pub fn leak_command(pid:u32, interval: u64){
         }
     }
 
-    #[cfg(target_os = "windows")]{
+    #[cfg(target_os = "windows")]
+    {
         let results = diff_snapshots(&snapshot1, &snapshot2);
         let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
         println!("snapshot 1 → snapshot 2 ({}s interval)", interval);
@@ -235,43 +233,69 @@ pub fn leak_command(pid:u32, interval: u64){
         if results.is_empty() {
             println!("no leak detected");
         } else {
-            println!("\x1b[31mleak suspected — {} KB of new allocations\x1b[0m", new_bytes / 1024);
+            println!(
+                "\x1b[31mleak suspected — {} KB of new allocations\x1b[0m",
+                new_bytes / 1024
+            );
         }
     }
 }
 
-pub fn leak_m_command (pid:u32, interval: u64, samples:u64){
+pub fn leak_m_command(pid: u32, interval: u64, samples: u64) {
     let mut prev = heap_mode(pid);
-            for i in 0..samples {
-                sleep(Duration::new(interval, 0));
-                let next = heap_mode(pid);
-                let results = diff_snapshots(&prev, &next);
-                let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
+    for i in 0..samples {
+        sleep(Duration::new(interval, 0));
+        let next = heap_mode(pid);
+        let results = diff_snapshots(&prev, &next);
+        let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
 
-                print!("sample {} ", i + 1);
-                println!("new allocations: {}  new bytes: {} KB  {}",
-                    results.len(),
-                    new_bytes / 1024,
-                    if results.is_empty() { "ok" } else { "\x1b[31mleak suspected\x1b[0m" }
-                );
-
-                prev = next;
+        print!("sample {} ", i + 1);
+        println!(
+            "new allocations: {}  new bytes: {} KB  {}",
+            results.len(),
+            new_bytes / 1024,
+            if results.is_empty() {
+                "ok"
+            } else {
+                "\x1b[31mleak suspected\x1b[0m"
             }
+        );
+
+        prev = next;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{HeapBlock, Region, RegionKind, RegionState, RegionProtect};
+    use crate::types::{HeapBlock, Region, RegionKind, RegionProtect, RegionState};
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
     fn make_block(address: usize, size: usize, is_free: bool) -> HeapBlock {
-        HeapBlock { address, size, is_free }
+        HeapBlock {
+            address,
+            size,
+            is_free,
+        }
     }
 
-    fn make_region(base: usize, size: usize, state: RegionState, kind: RegionKind, protect: RegionProtect, name: &str) -> Region {
-        Region { base, size, state, kind, protect, name: name.to_string() }
+    fn make_region(
+        base: usize,
+        size: usize,
+        state: RegionState,
+        kind: RegionKind,
+        protect: RegionProtect,
+        name: &str,
+    ) -> Region {
+        Region {
+            base,
+            size,
+            state,
+            kind,
+            protect,
+            name: name.to_string(),
+        }
     }
 
     // ── diff_heap_size ────────────────────────────────────────────────────────
@@ -279,7 +303,10 @@ mod tests {
     #[test]
     fn heap_growth_detected() {
         let before = vec![make_block(0x1000, 4096, false)];
-        let after  = vec![make_block(0x1000, 4096, false), make_block(0x2000, 2048, false)];
+        let after = vec![
+            make_block(0x1000, 4096, false),
+            make_block(0x2000, 2048, false),
+        ];
         assert_eq!(diff_heap_size(&before, &after), 2048);
     }
 
@@ -292,7 +319,7 @@ mod tests {
     #[test]
     fn no_growth_when_shrinks() {
         let before = vec![make_block(0x1000, 8192, false)];
-        let after  = vec![make_block(0x1000, 4096, false)];
+        let after = vec![make_block(0x1000, 4096, false)];
         // shrinkage returns 0, not a wrapping negative
         assert_eq!(diff_heap_size(&before, &after), 0);
     }
@@ -301,7 +328,10 @@ mod tests {
     fn growth_counts_free_blocks_too() {
         // diff_heap_size sums ALL blocks regardless of is_free
         let before = vec![make_block(0x1000, 1024, false)];
-        let after  = vec![make_block(0x1000, 1024, false), make_block(0x2000, 512, true)];
+        let after = vec![
+            make_block(0x1000, 1024, false),
+            make_block(0x2000, 512, true),
+        ];
         assert_eq!(diff_heap_size(&before, &after), 512);
     }
 
@@ -310,8 +340,8 @@ mod tests {
     #[test]
     fn new_allocs_detected() {
         let before = vec![make_block(0x1000, 64, false)];
-        let after  = vec![
-            make_block(0x1000, 64,  false),
+        let after = vec![
+            make_block(0x1000, 64, false),
             make_block(0x2000, 128, false), // new
         ];
         let results = diff_snapshots(&before, &after);
@@ -321,7 +351,10 @@ mod tests {
 
     #[test]
     fn no_false_positives_on_same_snapshot() {
-        let snap = vec![make_block(0x1000, 64, false), make_block(0x2000, 128, false)];
+        let snap = vec![
+            make_block(0x1000, 64, false),
+            make_block(0x2000, 128, false),
+        ];
         assert!(diff_snapshots(&snap, &snap).is_empty());
     }
 
@@ -336,10 +369,10 @@ mod tests {
     #[test]
     fn multiple_new_allocs_all_reported() {
         let before = vec![];
-        let after  = vec![
-            make_block(0x1000, 64,  false),
+        let after = vec![
+            make_block(0x1000, 64, false),
             make_block(0x2000, 128, false),
-            make_block(0x3000, 32,  false),
+            make_block(0x3000, 32, false),
         ];
         let results = diff_snapshots(&before, &after);
         assert_eq!(results.len(), 3);
@@ -353,9 +386,9 @@ mod tests {
     #[test]
     fn stack_trio_labeled_correctly() {
         let regions = vec![
-            make_region(0x7ff0_0000, 4096,  Reserved,  Private, ReadWrite, ""),  // stack-reserved
-            make_region(0x7ff1_0000, 4096,  Committed, Private, Guard,     ""),  // stack-guard  (pass 1 trigger)
-            make_region(0x7ff2_0000, 65536, Committed, Private, ReadWrite, ""),  // stack-live
+            make_region(0x7ff0_0000, 4096, Reserved, Private, ReadWrite, ""), // stack-reserved
+            make_region(0x7ff1_0000, 4096, Committed, Private, Guard, ""), // stack-guard  (pass 1 trigger)
+            make_region(0x7ff2_0000, 65536, Committed, Private, ReadWrite, ""), // stack-live
         ];
         let labels = classify(&regions);
         assert_eq!(labels[0], "stack-reserved");
@@ -365,36 +398,56 @@ mod tests {
 
     #[test]
     fn heap_fallback_for_private_committed() {
-        let regions = vec![
-            make_region(0x0030_0000, 8192, Committed, Private, ReadWrite, ""),
-        ];
+        let regions = vec![make_region(
+            0x0030_0000,
+            8192,
+            Committed,
+            Private,
+            ReadWrite,
+            "",
+        )];
         let labels = classify(&regions);
         assert_eq!(labels[0], "heap");
     }
 
     #[test]
     fn named_heap_region_labeled_heap() {
-        let regions = vec![
-            make_region(0x0040_0000, 4096, Committed, Private, ReadWrite, "[heap]"),
-        ];
+        let regions = vec![make_region(
+            0x0040_0000,
+            4096,
+            Committed,
+            Private,
+            ReadWrite,
+            "[heap]",
+        )];
         let labels = classify(&regions);
         assert_eq!(labels[0], "heap");
     }
 
     #[test]
     fn so_file_labeled_image() {
-        let regions = vec![
-            make_region(0x7f00_0000, 4096, Committed, Image, Execute, "/usr/lib/libc.so.6"),
-        ];
+        let regions = vec![make_region(
+            0x7f00_0000,
+            4096,
+            Committed,
+            Image,
+            Execute,
+            "/usr/lib/libc.so.6",
+        )];
         let labels = classify(&regions);
         assert_eq!(labels[0], "image");
     }
 
     #[test]
     fn mapped_kind_labeled_mapped() {
-        let regions = vec![
-            make_region(0x0010_0000, 4096, Committed, Mapped, Readonly, ""),
-        ];
+        let regions = vec![make_region(
+            0x0010_0000,
+            4096,
+            Committed,
+            Mapped,
+            Readonly,
+            "",
+        )];
         let labels = classify(&regions);
         assert_eq!(labels[0], "mapped");
     }
@@ -403,8 +456,8 @@ mod tests {
     fn classify_output_length_matches_input() {
         let regions = vec![
             make_region(0x1000, 4096, Committed, Private, ReadWrite, ""),
-            make_region(0x2000, 4096, Committed, Mapped,  Readonly,  ""),
-            make_region(0x3000, 4096, Reserved,  Private, NoAccess,  ""),
+            make_region(0x2000, 4096, Committed, Mapped, Readonly, ""),
+            make_region(0x3000, 4096, Reserved, Private, NoAccess, ""),
         ];
         let labels = classify(&regions);
         assert_eq!(labels.len(), regions.len());

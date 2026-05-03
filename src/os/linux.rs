@@ -1,4 +1,4 @@
-use crate::types::{Region, RegionState, RegionKind, RegionProtect, HeapBlock};
+use crate::types::{HeapBlock, Region, RegionKind, RegionProtect, RegionState};
 use std::fs;
 
 pub fn walk_regions(pid: u32) -> Vec<Region> {
@@ -11,17 +11,17 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
         // 55a3b2000000-55a3b2001000 r--p 00000000 08:01 123456  /usr/bin/cat
         let mut parts = line.splitn(6, ' ');
 
-        let range   = parts.next().unwrap_or("");
-        let perms   = parts.next().unwrap_or("");
+        let range = parts.next().unwrap_or("");
+        let perms = parts.next().unwrap_or("");
         let _offset = parts.next();
         let _device = parts.next();
-        let _inode  = parts.next();
-        let name    = parts.next().unwrap_or("").trim();
+        let _inode = parts.next();
+        let name = parts.next().unwrap_or("").trim();
 
         // parse start-end
         let mut range_parts = range.split('-');
         let start = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
-        let end   = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
+        let end = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
 
         let protect = if perms.contains('x') {
             RegionProtect::Execute
@@ -67,8 +67,7 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
             in_heap = true;
             let range = line.split_whitespace().next().unwrap_or("");
             let mut parts = range.split('-');
-            current_start = usize::from_str_radix(
-                parts.next().unwrap_or("0"), 16).unwrap_or(0);
+            current_start = usize::from_str_radix(parts.next().unwrap_or("0"), 16).unwrap_or(0);
         } else if in_heap && line.starts_with("Size:") {
             let kb: usize = line
                 .split_whitespace()

@@ -1,7 +1,7 @@
 //! # mvis - Memory Visualizer
-//! 
+//!
 //! A cross-platform memory diagnostic CLI tool.
-//! 
+//!
 //! ## Usage
 //! ```
 //! mvis scan <process> <mode>
@@ -9,8 +9,8 @@
 //! mvis leak-m <process> <interval> <samples>
 //! mvis list [filter]
 //! ```
-//! 
-use mvis::scan::{scan_with_modes, leak_command, leak_m_command};
+//!
+use mvis::scan::{leak_command, leak_m_command, scan_with_modes};
 use std::env;
 
 fn main() {
@@ -21,7 +21,7 @@ fn main() {
 }
 
 /// Entry point for all CLI commands.
-/// 
+///
 /// Parses arguments and dispatches to the appropriate handler.
 /// Returns `Err(String)` with a human-readable message on failure.
 fn run() -> Result<(), String> {
@@ -60,7 +60,9 @@ fn run() -> Result<(), String> {
             use sysinfo::System;
             let sys = System::new_all();
             let filter = args.get(2).map(|s| s.to_lowercase());
-            let mut processes: Vec<_> = sys.processes().values()
+            let mut processes: Vec<_> = sys
+                .processes()
+                .values()
                 .filter(|p| {
                     filter.as_ref().map_or(true, |f| {
                         p.name().to_string_lossy().to_lowercase().contains(f)
@@ -72,7 +74,8 @@ fn run() -> Result<(), String> {
             println!("{:<8} {:<30} {}", "PID", "NAME", "MEMORY");
             println!("{}", "-".repeat(50));
             for process in processes.iter().take(20) {
-                println!("{:<8} {:<30} {} MB",
+                println!(
+                    "{:<8} {:<30} {} MB",
                     process.pid().as_u32(),
                     process.name().to_string_lossy(),
                     process.memory() / 1024 / 1024,
@@ -84,6 +87,8 @@ fn run() -> Result<(), String> {
             println!("scan [app.exe] [modes] [json] [output]");
             println!("leak [app.exe] [duration]");
             println!("leak-m [app.exe] [duration] [samples]");
+            #[cfg(target_os = "windows")]
+            println!("wintrace [app.exe]");
             println!("help");
             println!("version");
             println!("list [filter]");
@@ -94,7 +99,23 @@ fn run() -> Result<(), String> {
             println!("-v :Verbose Mode");
         }
         "version" | "--version" | "-v" => {
-            println!("Mvis v0.0.6");
+            println!("Mvis v0.1.0");
+        }
+        #[cfg(target_os = "windows")]
+        "wintrace" => {
+            let queryp = get_arg(&args, 2, "process name")?;
+            let pid = find_pid(queryp.to_string())?;
+            let regions = mvis::os::walk_regions(pid);
+            match mvis::stack_trace::StackTrace::capture(pid, &regions) {
+                Ok(trace) => {
+                    println!("stack trace for {} (pid: {})", queryp, pid);
+                    println!("{}", "-".repeat(60));
+                    for frame in &trace.frames {
+                        println!("  0x{:x}  {}", frame.instruction_pointer, frame.symbol);
+                    }
+                }
+                Err(e) => return Err(e),
+            }
         }
         _ => {
             return Err(format!("unknown command '{}' — run 'mvis --help'", command));
@@ -104,19 +125,19 @@ fn run() -> Result<(), String> {
 }
 
 /// Finds a process PID by name, case-insensitive.
-/// 
+///
 /// # Arguments
 /// * `name` - The process name to search for (e.g. "notepad.exe")
-/// 
+///
 /// # Returns
 /// * `Ok(u32)` - The PID of the first matching process
 /// * `Err(String)` - If no process with that name is found
-/// 
+///
 /// # Example
 /// ```
 /// let pid = find_pid("notepad.exe".to_string())?;
 /// ```
-fn find_pid(name: String) -> Result<u32, String>{
+fn find_pid(name: String) -> Result<u32, String> {
     use sysinfo::System;
     let sys = System::new_all();
     sys.processes()
@@ -127,35 +148,32 @@ fn find_pid(name: String) -> Result<u32, String>{
 }
 
 /// Gets a CLI argument by index.
-/// 
+///
 /// # Arguments
 /// * `args` - The full argument list
 /// * `index` - Which argument to get
 /// * `name` - Human-readable name for error messages
-/// 
+///
 /// # Returns
 /// * `Ok(&str)` - The argument value
 /// * `Err(String)` - If the argument is missing, with a helpful message
-fn get_arg<'a>(args: &'a[String], index: usize, name: &str) -> Result<&'a str, String> {
+fn get_arg<'a>(args: &'a [String], index: usize, name: &str) -> Result<&'a str, String> {
     args.get(index)
         .map(|s| s.as_str())
         .ok_or_else(|| format!("missing argument: {}", name))
 }
 
 /// Checks if the current process is running with elevated privileges.
-/// 
+///
 /// On Windows: checks for admin token elevation.
 /// On Linux: checks if effective user ID is root (0).
 #[cfg(target_os = "windows")]
 fn is_elevated() -> bool {
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Security::{
-        GetTokenInformation, TokenElevation, 
-        TOKEN_ELEVATION, TOKEN_QUERY
+        GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
     };
-    use windows::Win32::System::Threading::{
-        GetCurrentProcess, OpenProcessToken
-    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     unsafe {
         let mut token = HANDLE::default();
@@ -172,7 +190,9 @@ fn is_elevated() -> bool {
             Some(&mut elevation as *mut _ as *mut _),
             size,
             &mut size,
-        ).is_err() {
+        )
+        .is_err()
+        {
             return false;
         }
 
