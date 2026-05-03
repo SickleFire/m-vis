@@ -83,7 +83,7 @@ cargo build --release
 - [ ] Realtime heap scanning
 - [ ] Cross Platform support for MacOS
 - [ ] Performance improvements
-- [ ] Stack trace support for windows
+- [x] Stack trace support for windows
 - [x] Json exports
 
 ### Known Issues
