@@ -87,6 +87,7 @@ cargo build --release
 - [x] Json exports
 
 ### Known Issues
+- [ ] Linux Symbol inconsistent
 - [ ] Heap walking is slow
 - [ ] Missing stack trace for windows
 - [ ] Linux stack frames resolve to addresses, not function names yet
