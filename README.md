@@ -23,11 +23,11 @@ Early but functional. Core scanning and leak detection work on both platforms. S
 -  **Heap-Level Analysis**: Dive into heap structures for detailed debugging.
 -  **DLL Tracking**: Monitor and list all DLLs loaded by a target.
 -  **Memory Leak Detection**: Identify and monitor processes with growing, unreleased allocations.
--  **Stack Tracing**: Capture call stacks to pinpoint allocation sources and trace execution paths. (Linux)
+-  **Stack Tracing**: Capture call stacks to pinpoint allocation sources and trace execution paths.
 -  **Supported OS**: Windows, Linux
 
 ## Known Limitations
-- ptrace leak tracing (Linux) requires sudo or ptrace_scope=0
+- ptrace leak tracing requires sudo or ptrace_scope=0
 - macOS not supported yet
 
 ## Usage
