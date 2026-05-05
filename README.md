@@ -77,6 +77,31 @@ cd mvis
 cargo build --release
 ```
 
+## Testing
+
+The project includes comprehensive unit and integration tests to ensure reliability across platforms.
+
+### Run all tests
+```bash
+cargo test
+```
+
+### Run only integration tests
+```bash
+cargo test --test integration_tests
+```
+
+### Run integration tests with admin privileges (advanced)
+```bash
+# On Linux with sudo
+sudo cargo test --test integration_tests -- --include-ignored
+
+# On Windows (run terminal as Administrator)
+cargo test --test integration_tests -- --include-ignored
+```
+
+---
+
 ### Roadmap
 - [ ] TUI frontend for heap analysis (Changed to TUI instead of GUI following our design philosophy of being lightweight)
 - [ ] Heap fragmentation visualization
@@ -91,7 +116,6 @@ cargo build --release
 - [ ] Heap walking is slow
 - [ ] Missing stack trace for windows
 - [ ] Linux stack frames resolve to addresses, not function names yet
-- [ ] Missing Tests
 
 ## License
 
