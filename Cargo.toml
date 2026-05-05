@@ -1,6 +1,6 @@
 [package]
 name = "mvis"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
@@ -8,6 +8,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sysinfo = "0.38.4"
 libc = "0.2"
+rayon = "1.12.0"
 
 [target.'cfg(target_os = "windows")'.dependencies.windows]
 version = "0.62.2"
@@ -22,7 +23,6 @@ features = [
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_SystemInformation",
     "Win32_System_ProcessStatus",
-    "Win32_System_Diagnostics_Etw",
 ]
 
 [target.'cfg(target_os = "linux")'.dependencies]

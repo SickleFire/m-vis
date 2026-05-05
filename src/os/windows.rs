@@ -80,44 +80,126 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
 
 pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
     use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, HEAPENTRY32, HEAPLIST32, Heap32First, Heap32ListFirst,
-        Heap32ListNext, Heap32Next, LF32_FREE, TH32CS_SNAPHEAPLIST,
+        CreateToolhelp32Snapshot, HEAPLIST32,
+        Heap32ListFirst, Heap32ListNext,
+        TH32CS_SNAPHEAPLIST,
     };
-    let mut blocks = Vec::new();
+    use windows::Win32::System::Memory::{
+        VirtualQueryEx, MEMORY_BASIC_INFORMATION,
+        MEM_COMMIT, PAGE_NOACCESS,
+    };
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+    };
+    use windows::Win32::Foundation::CloseHandle;
+
+    let t = std::time::Instant::now();
+    let mut blocks = Vec::with_capacity(50_000);
 
     unsafe {
-        let snapshot =
-            CreateToolhelp32Snapshot(TH32CS_SNAPHEAPLIST, pid).expect("failed to create snapshot");
+        // open process for reading
+        let proc_handle = match OpenProcess(
+            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+            false,
+            pid,
+        ) {
+            Ok(h) => h,
+            Err(_) => return blocks,
+        };
 
+        // get heap base addresses via Toolhelp32 (only 7 calls — fast)
+        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPHEAPLIST, pid) {
+            Ok(h) => h,
+            Err(_) => { CloseHandle(proc_handle).ok(); return blocks; }
+        };
+
+        let mut heap_bases: Vec<usize> = Vec::new();
         let mut hl = HEAPLIST32::default();
         hl.dwSize = std::mem::size_of::<HEAPLIST32>() as usize;
 
-        // walk each heap
         if Heap32ListFirst(snapshot, &mut hl).is_ok() {
             loop {
-                // walk each block in this heap
-                let mut he = HEAPENTRY32::default();
-                he.dwSize = std::mem::size_of::<HEAPENTRY32>() as usize;
+                heap_bases.push(hl.th32HeapID);
+                if Heap32ListNext(snapshot, &mut hl).is_err() { break; }
+            }
+        }
 
-                if Heap32First(&mut he, pid, hl.th32HeapID).is_ok() {
-                    loop {
-                        let is_free = he.dwFlags == LF32_FREE;
-                        blocks.push(HeapBlock {
-                            address: he.dwAddress,
-                            size: he.dwBlockSize,
-                            is_free,
-                        });
-                        if Heap32Next(&mut he).is_err() {
-                            break;
+        eprintln!("heap count: {}", heap_bases.len());
+
+        // for each heap base, walk all committed regions and parse block headers
+        for heap_base in heap_bases {
+            let mut addr = heap_base;
+
+            loop {
+                // query the region at this address
+                let mut mbi = MEMORY_BASIC_INFORMATION::default();
+                let written = VirtualQueryEx(
+                    proc_handle,
+                    Some(addr as *const _),
+                    &mut mbi,
+                    std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+                );
+                if written == 0 { break; }
+
+                // only read committed, accessible memory
+                if mbi.State == MEM_COMMIT
+                    && mbi.Protect.0 != 0
+                    && !mbi.Protect.contains(PAGE_NOACCESS)
+                    && mbi.RegionSize > 0
+                {
+                    // read the entire region at once — one syscall for thousands of blocks
+                    let mut buf = vec![0u8; mbi.RegionSize];
+                    let mut bytes_read = 0usize;
+                    let ok = ReadProcessMemory(
+                        proc_handle,
+                        mbi.BaseAddress,
+                        buf.as_mut_ptr() as *mut _,
+                        mbi.RegionSize,
+                        Some(&mut bytes_read),
+                    );
+
+                    if ok.is_ok() && bytes_read >= 8 {
+                        let mut offset = 0usize;
+                        while offset + 8 <= bytes_read {
+                            let size_units = u16::from_le_bytes([
+                                buf[offset],
+                                buf[offset + 1],
+                            ]) as usize;
+
+                            if size_units == 0 { break; }
+
+                            let block_size = size_units * 8;
+                            if offset + block_size > bytes_read { break; }
+
+                            let flags   = buf[offset + 5];
+                            let is_busy = (flags & 0x01) != 0;
+
+                            blocks.push(HeapBlock {
+                                address: mbi.BaseAddress as usize + offset,
+                                size:    block_size,
+                                is_free: !is_busy,
+                            });
+
+                            offset += block_size;
                         }
                     }
                 }
 
-                if Heap32ListNext(snapshot, &mut hl).is_err() {
-                    break;
-                }
+                // advance to next region
+                let next = addr.saturating_add(mbi.RegionSize);
+                if next <= addr { break; }
+                addr = next;
+
+                // stop when we've moved far from the heap base
+                // heap segments are typically contiguous
+                if addr > heap_base + 512 * 1024 * 1024 { break; }
             }
         }
+
+        CloseHandle(proc_handle).ok();
     }
+
+    eprintln!("walk_heap: {}ms {} blocks", t.elapsed().as_millis(), blocks.len());
     blocks
 }

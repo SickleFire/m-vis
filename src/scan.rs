@@ -9,6 +9,7 @@ use crate::types::{HeapBlock, Region};
 use std::collections::HashSet;
 use std::thread::sleep;
 use std::time::Duration;
+use rayon::prelude::*;
 
 /// Scans a process and displays memory information.
 ///
@@ -32,11 +33,11 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
         "-h" => {
             //Heap Mode
             let blocks = heap_mode(pid);
-            let used: Vec<_> = blocks.iter().filter(|b| !b.is_free).collect();
-            let free: Vec<_> = blocks.iter().filter(|b| b.is_free).collect();
+            let used: Vec<_> = blocks.par_iter().filter(|b| !b.is_free).collect();
+            let free: Vec<_> = blocks.par_iter().filter(|b| b.is_free).collect();
 
-            let used_bytes: usize = used.iter().map(|b| b.size).sum();
-            let free_bytes: usize = free.iter().map(|b| b.size).sum();
+            let used_bytes: usize = used.par_iter().map(|b| b.size).sum();
+            let free_bytes: usize = free.par_iter().map(|b| b.size).sum();
 
             println!("total blocks : {}", blocks.len());
             println!("used blocks  : {} ({} KB)", used.len(), used_bytes / 1024);
@@ -45,6 +46,42 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
                 "fragmentation: {:.1}%",
                 free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0
             );
+            // top 10 largest allocations
+            println!("\ntop 10 largest allocations:");
+            let mut sorted = used.clone();
+            sorted.sort_by(|a, b| b.size.cmp(&a.size));
+            for block in sorted.iter().take(10) {
+                println!("  0x{:x}  {} KB", block.address, block.size / 1024);
+            }
+        
+            // size distribution
+            println!("\nsize distribution:");
+            let tiny:   usize = used.iter().filter(|b| b.size < 64).count();
+            let small:  usize = used.iter().filter(|b| b.size >= 64    && b.size < 1024).count();
+            let medium: usize = used.iter().filter(|b| b.size >= 1024  && b.size < 65536).count();
+            let large:  usize = used.iter().filter(|b| b.size >= 65536 && b.size < 1024*1024).count();
+            let huge:   usize = used.iter().filter(|b| b.size >= 1024*1024).count();
+        
+            println!("  tiny   (<64B)   : {}", tiny);
+            println!("  small  (<1KB)   : {}", small);
+            println!("  medium (<64KB)  : {}", medium);
+            println!("  large  (<1MB)   : {}", large);
+            println!("  huge   (>=1MB)  : {}", huge);
+        
+            // fragmentation assessment
+            println!("\nassessment:");
+            let frag = free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0;
+            if frag > 50.0 {
+                println!("  \x1b[31mhigh fragmentation — consider heap compaction\x1b[0m");
+            } else if frag > 25.0 {
+                println!("  \x1b[33mmoderate fragmentation — monitor over time\x1b[0m");
+            } else {
+                println!("  \x1b[32mlow fragmentation — heap is healthy\x1b[0m");
+            }
+        
+            if huge > 0 {
+                println!("  \x1b[33m{} large allocations (>=1MB) detected\x1b[0m", huge);
+            }
         }
         "-a" => {
             if json {
