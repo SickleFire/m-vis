@@ -168,6 +168,7 @@ fn get_arg<'a>(args: &'a [String], index: usize, name: &str) -> Result<&'a str, 
 /// On Windows: checks for admin token elevation.
 /// On Linux: checks if effective user ID is root (0).
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn is_elevated() -> bool {
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Security::{

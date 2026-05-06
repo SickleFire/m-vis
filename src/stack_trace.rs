@@ -265,7 +265,8 @@ mod windows {
             // get all thread IDs for this process
             let thread_ids = get_thread_ids(pid);
             if thread_ids.is_empty() {
-                SymCleanup(proc_handle);
+                
+                let _ = SymCleanup(proc_handle);
                 CloseHandle(proc_handle).ok();
                 return Err("no threads found".to_string());
             }
@@ -360,7 +361,7 @@ mod windows {
                 CloseHandle(thread_handle).ok();
             }
 
-            SymCleanup(proc_handle);
+            let _ = SymCleanup(proc_handle);
             CloseHandle(proc_handle).ok();
 
             Ok(StackTrace {

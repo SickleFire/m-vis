@@ -70,6 +70,12 @@ Output: <br>
 
 ## Installation
 
+### From GitHub Releases (Recommended)
+Download pre-built binaries from [Releases](https://github.com/SickleFire/m-vis/releases):
+- **Windows:** `mvis-windows-x86_64.exe`
+- **Linux:** `mvis-linux-x86_64`
+
+
 ### From source
 ```bash
 git clone https://github.com/SickleFire/m-vis

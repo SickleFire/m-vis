@@ -4,10 +4,13 @@
 ### Added
 - Integration test suite
 - CI/CD pipeline with GitHub Actions
+- Pre-built binary releases for Windows and Linux
+
 
 ### Fixed
+- Replaced Heap Walking to ReadProcessMemory
 - Process lookup now uses stable system processes
-- JSON export validation improved
+- JSON export validation improved (tests)
 
 ### Known Issues
 - Linux symbol resolution inconsistent
