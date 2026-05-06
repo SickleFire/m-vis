@@ -1,5 +1,8 @@
 # mvis 
 
+[![Tests](https://github.com/SickleFire/m-vis/actions/workflows/tests.yml/badge.svg)](https://github.com/SickleFire/m-vis/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 mvis: Memory debugging for developers who just want answers.
 Simple. Fast. Works everywhere.
 
