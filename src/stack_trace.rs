@@ -17,7 +17,6 @@
 //! }
 //! ```
 
-
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
@@ -265,7 +264,6 @@ mod windows {
             // get all thread IDs for this process
             let thread_ids = get_thread_ids(pid);
             if thread_ids.is_empty() {
-                
                 let _ = SymCleanup(proc_handle);
                 CloseHandle(proc_handle).ok();
                 return Err("no threads found".to_string());

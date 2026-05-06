@@ -6,10 +6,10 @@ use crate::types::RegionKind::*;
 use crate::types::RegionProtect::*;
 use crate::types::RegionState::*;
 use crate::types::{HeapBlock, Region};
+use rayon::prelude::*;
 use std::collections::HashSet;
 use std::thread::sleep;
 use std::time::Duration;
-use rayon::prelude::*;
 
 /// Scans a process and displays memory information.
 ///
@@ -53,21 +53,30 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
             for block in sorted.iter().take(10) {
                 println!("  0x{:x}  {} KB", block.address, block.size / 1024);
             }
-        
+
             // size distribution
             println!("\nsize distribution:");
-            let tiny:   usize = used.iter().filter(|b| b.size < 64).count();
-            let small:  usize = used.iter().filter(|b| b.size >= 64    && b.size < 1024).count();
-            let medium: usize = used.iter().filter(|b| b.size >= 1024  && b.size < 65536).count();
-            let large:  usize = used.iter().filter(|b| b.size >= 65536 && b.size < 1024*1024).count();
-            let huge:   usize = used.iter().filter(|b| b.size >= 1024*1024).count();
-        
+            let tiny: usize = used.iter().filter(|b| b.size < 64).count();
+            let small: usize = used
+                .iter()
+                .filter(|b| b.size >= 64 && b.size < 1024)
+                .count();
+            let medium: usize = used
+                .iter()
+                .filter(|b| b.size >= 1024 && b.size < 65536)
+                .count();
+            let large: usize = used
+                .iter()
+                .filter(|b| b.size >= 65536 && b.size < 1024 * 1024)
+                .count();
+            let huge: usize = used.iter().filter(|b| b.size >= 1024 * 1024).count();
+
             println!("  tiny   (<64B)   : {}", tiny);
             println!("  small  (<1KB)   : {}", small);
             println!("  medium (<64KB)  : {}", medium);
             println!("  large  (<1MB)   : {}", large);
             println!("  huge   (>=1MB)  : {}", huge);
-        
+
             // fragmentation assessment
             println!("\nassessment:");
             let frag = free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0;
@@ -78,9 +87,12 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
             } else {
                 println!("  \x1b[32mlow fragmentation — heap is healthy\x1b[0m");
             }
-        
+
             if huge > 0 {
-                println!("  \x1b[33m{} large allocations (>=1MB) detected\x1b[0m", huge);
+                println!(
+                    "  \x1b[33m{} large allocations (>=1MB) detected\x1b[0m",
+                    huge
+                );
             }
         }
         "-a" => {

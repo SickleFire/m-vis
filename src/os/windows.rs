@@ -79,31 +79,25 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
 }
 
 pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
     use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, HEAPLIST32,
-        Heap32ListFirst, Heap32ListNext,
-        TH32CS_SNAPHEAPLIST,
+        CreateToolhelp32Snapshot, HEAPLIST32, Heap32ListFirst, Heap32ListNext, TH32CS_SNAPHEAPLIST,
     };
     use windows::Win32::System::Memory::{
-        VirtualQueryEx, MEMORY_BASIC_INFORMATION,
-        MEM_COMMIT, PAGE_NOACCESS,
+        MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_NOACCESS, VirtualQueryEx,
     };
-    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
     use windows::Win32::System::Threading::{
         OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
     };
-    use windows::Win32::Foundation::CloseHandle;
 
     let t = std::time::Instant::now();
     let mut blocks = Vec::with_capacity(50_000);
 
     unsafe {
         // open process for reading
-        let proc_handle = match OpenProcess(
-            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-            false,
-            pid,
-        ) {
+        let proc_handle = match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
+        {
             Ok(h) => h,
             Err(_) => return blocks,
         };
@@ -111,7 +105,10 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
         // get heap base addresses via Toolhelp32 (only 7 calls — fast)
         let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPHEAPLIST, pid) {
             Ok(h) => h,
-            Err(_) => { CloseHandle(proc_handle).ok(); return blocks; }
+            Err(_) => {
+                CloseHandle(proc_handle).ok();
+                return blocks;
+            }
         };
 
         let mut heap_bases: Vec<usize> = Vec::new();
@@ -121,7 +118,9 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
         if Heap32ListFirst(snapshot, &mut hl).is_ok() {
             loop {
                 heap_bases.push(hl.th32HeapID);
-                if Heap32ListNext(snapshot, &mut hl).is_err() { break; }
+                if Heap32ListNext(snapshot, &mut hl).is_err() {
+                    break;
+                }
             }
         }
 
@@ -140,7 +139,9 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
                     &mut mbi,
                     std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
                 );
-                if written == 0 { break; }
+                if written == 0 {
+                    break;
+                }
 
                 // only read committed, accessible memory
                 if mbi.State == MEM_COMMIT
@@ -162,22 +163,24 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
                     if ok.is_ok() && bytes_read >= 8 {
                         let mut offset = 0usize;
                         while offset + 8 <= bytes_read {
-                            let size_units = u16::from_le_bytes([
-                                buf[offset],
-                                buf[offset + 1],
-                            ]) as usize;
+                            let size_units =
+                                u16::from_le_bytes([buf[offset], buf[offset + 1]]) as usize;
 
-                            if size_units == 0 { break; }
+                            if size_units == 0 {
+                                break;
+                            }
 
                             let block_size = size_units * 8;
-                            if offset + block_size > bytes_read { break; }
+                            if offset + block_size > bytes_read {
+                                break;
+                            }
 
-                            let flags   = buf[offset + 5];
+                            let flags = buf[offset + 5];
                             let is_busy = (flags & 0x01) != 0;
 
                             blocks.push(HeapBlock {
                                 address: mbi.BaseAddress as usize + offset,
-                                size:    block_size,
+                                size: block_size,
                                 is_free: !is_busy,
                             });
 
@@ -188,18 +191,26 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
 
                 // advance to next region
                 let next = addr.saturating_add(mbi.RegionSize);
-                if next <= addr { break; }
+                if next <= addr {
+                    break;
+                }
                 addr = next;
 
                 // stop when we've moved far from the heap base
                 // heap segments are typically contiguous
-                if addr > heap_base + 512 * 1024 * 1024 { break; }
+                if addr > heap_base + 512 * 1024 * 1024 {
+                    break;
+                }
             }
         }
 
         CloseHandle(proc_handle).ok();
     }
 
-    eprintln!("walk_heap: {}ms {} blocks", t.elapsed().as_millis(), blocks.len());
+    eprintln!(
+        "walk_heap: {}ms {} blocks",
+        t.elapsed().as_millis(),
+        blocks.len()
+    );
     blocks
 }

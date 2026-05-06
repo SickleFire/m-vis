@@ -3,9 +3,9 @@
 //! These tests verify end-to-end functionality of the CLI commands.
 //! Some tests require elevated privileges (marked with #[ignore]).
 
-use std::process::Command;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 /// Helper to run mvis command
 fn run_mvis(args: &[&str]) -> std::process::Output {
@@ -19,9 +19,13 @@ fn run_mvis(args: &[&str]) -> std::process::Output {
 /// Get a stable system process that always exists
 fn get_stable_process() -> &'static str {
     #[cfg(target_os = "windows")]
-    { "svchost.exe" }
+    {
+        "svchost.exe"
+    }
     #[cfg(not(target_os = "windows"))]
-    { "systemd" }
+    {
+        "systemd"
+    }
 }
 
 /// Test that mvis list command works
@@ -36,14 +40,17 @@ fn test_list_command() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Should contain header
     assert!(stdout.contains("PID"), "Output missing PID header");
     assert!(stdout.contains("NAME"), "Output missing NAME header");
     assert!(stdout.contains("MEMORY"), "Output missing MEMORY header");
 
     // Should list at least one process (the current process)
-    assert!(stdout.lines().count() > 3, "Output too short, expected process entries");
+    assert!(
+        stdout.lines().count() > 3,
+        "Output too short, expected process entries"
+    );
 }
 
 /// Test that mvis list with filter works
@@ -58,7 +65,7 @@ fn test_list_command_with_filter() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Should contain header even with filter
     assert!(stdout.contains("PID"), "Filtered output missing PID header");
 }
@@ -72,12 +79,12 @@ fn test_scan_command_all_mode() {
 
     // Should execute without crashing (even if it fails gracefully on non-admin)
     let stderr = String::from_utf8_lossy(&output.stderr);
-    
+
     // Either success, or permission/access error (acceptable for unprivileged execution)
     if !output.status.success() {
         assert!(
-            stderr.contains("permission") 
-                || stderr.contains("admin") 
+            stderr.contains("permission")
+                || stderr.contains("admin")
                 || stderr.contains("access")
                 || stderr.contains("denied"),
             "Unexpected error: {}",
@@ -98,7 +105,7 @@ fn test_scan_command_verbose_mode() {
     if !output.status.success() {
         // Permission errors are acceptable
         assert!(
-            stderr.contains("permission") 
+            stderr.contains("permission")
                 || stderr.contains("admin")
                 || stderr.contains("access")
                 || stderr.contains("denied"),
@@ -123,16 +130,12 @@ fn test_scan_json_output() {
         // Only validate JSON if output is not empty and looks like it might be JSON
         if !stdout.is_empty() && (stdout.starts_with('{') || stdout.starts_with('[')) {
             let result: Result<serde_json::Value, _> = serde_json::from_str(&stdout);
-            assert!(
-                result.is_ok(),
-                "JSON output is not valid JSON: {}",
-                stdout
-            );
+            assert!(result.is_ok(), "JSON output is not valid JSON: {}", stdout);
         }
     } else {
         // Permission/access errors are acceptable
         assert!(
-            stderr.contains("permission") 
+            stderr.contains("permission")
                 || stderr.contains("admin")
                 || stderr.contains("access")
                 || stderr.contains("denied"),
@@ -155,8 +158,8 @@ fn test_scan_invalid_process_name() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("not found") 
-            || stderr.contains("No such process") 
+        stderr.contains("not found")
+            || stderr.contains("No such process")
             || stderr.contains("error"),
         "Should provide helpful error message. Got: {}",
         stderr
@@ -171,13 +174,10 @@ fn test_scan_invalid_mode() {
 
     // Should either work (if mode is accepted) or fail gracefully
     let stderr = String::from_utf8_lossy(&output.stderr);
-    
+
     // Either succeeds or has meaningful error
     if !output.status.success() {
-        assert!(
-            !stderr.is_empty(),
-            "Failed but no error message provided"
-        );
+        assert!(!stderr.is_empty(), "Failed but no error message provided");
     }
 }
 
@@ -225,8 +225,8 @@ fn test_leak_command_valid_args() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
         assert!(
-            stderr.contains("permission") 
-                || stderr.contains("admin") 
+            stderr.contains("permission")
+                || stderr.contains("admin")
                 || stderr.contains("ptrace")
                 || stderr.contains("access")
                 || stderr.contains("denied"),
@@ -264,8 +264,8 @@ fn test_leak_m_command_valid_args() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
         assert!(
-            stderr.contains("permission") 
-                || stderr.contains("admin") 
+            stderr.contains("permission")
+                || stderr.contains("admin")
                 || stderr.contains("ptrace")
                 || stderr.contains("access")
                 || stderr.contains("denied"),
@@ -280,7 +280,7 @@ fn test_leak_m_command_valid_args() {
 #[ignore] // Requires admin/sudo
 fn test_scan_json_export_file() {
     let process_name = get_stable_process();
-    
+
     #[cfg(target_os = "windows")]
     let export_file = "mvis_test_export.json";
     #[cfg(not(target_os = "windows"))]
@@ -294,15 +294,14 @@ fn test_scan_json_export_file() {
     if output.status.success() {
         // Check if file was created
         if Path::new(export_file).exists() {
-            let content = fs::read_to_string(export_file)
-                .expect("Failed to read exported file");
-            
+            let content = fs::read_to_string(export_file).expect("Failed to read exported file");
+
             // Verify it looks like JSON (starts with { or [)
             if content.trim().starts_with('{') || content.trim().starts_with('[') {
                 let result: Result<serde_json::Value, _> = serde_json::from_str(&content);
                 assert!(result.is_ok(), "Exported file is not valid JSON");
             }
-            
+
             // Clean up
             let _ = fs::remove_file(export_file);
         }
