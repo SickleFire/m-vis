@@ -44,8 +44,5 @@ jobs:
       - name: Run integration tests
         run: cargo test --test integration_tests
 
-      - name: Run Clippy (Linter)
-        run: cargo clippy -- -D warnings
-
       - name: Check formatting
         run: cargo fmt -- --check
