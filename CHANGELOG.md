@@ -7,6 +7,7 @@
   
 ### Known Issues
 - TUI leak and other commands missing
+- scan app.exe -h has println in tui
 
 ## [0.1.1] - 2026-05-05
 ### Added
