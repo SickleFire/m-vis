@@ -134,6 +134,160 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
     }
 }
 
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+
+pub fn scan_with_modes_tui(
+    mode: &String,
+    pid: u32,
+    json: bool,
+    output_path: Option<&str>,
+) -> Vec<Line<'static>> {
+    let mut output: Vec<Line> = vec![];
+    let regions = walk_regions(pid);
+
+    if !json {
+        output.push(Line::from(vec![
+            Span::styled("I", Style::default().fg(Color::Blue)),
+            Span::raw(" image  "),
+            Span::styled("M", Style::default().fg(Color::Green)),
+            Span::raw(" mapped  "),
+            Span::styled("X", Style::default().fg(Color::Yellow)),
+            Span::raw(" exec  "),
+            Span::styled("H", Style::default().fg(Color::Magenta)),
+            Span::raw(" heap  "),
+            Span::styled("S", Style::default().fg(Color::Cyan)),
+            Span::raw(" stack  "),
+            Span::styled("G", Style::default().fg(Color::Red)),
+            Span::raw(" guard  "),
+            Span::styled(".", Style::default().fg(Color::DarkGray)),
+            Span::raw(" free"),
+        ]));
+    }
+
+    match mode.as_str() {
+        "-h" => {
+            let blocks = heap_mode(pid);
+            let used: Vec<_> = blocks.par_iter().filter(|b| !b.is_free).collect();
+            let free: Vec<_> = blocks.par_iter().filter(|b| b.is_free).collect();
+            let used_bytes: usize = used.par_iter().map(|b| b.size).sum();
+            let free_bytes: usize = free.par_iter().map(|b| b.size).sum();
+
+            output.push(Line::raw(format!("total blocks : {}", blocks.len())));
+            output.push(Line::raw(format!(
+                "used blocks  : {} ({} KB)",
+                used.len(),
+                used_bytes / 1024
+            )));
+            output.push(Line::raw(format!(
+                "free blocks  : {} ({} KB)",
+                free.len(),
+                free_bytes / 1024
+            )));
+            output.push(Line::raw(format!(
+                "fragmentation: {:.1}%",
+                free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0
+            )));
+            output.push(Line::raw("top 10 largest allocations:"));
+            let mut sorted = used.clone();
+            sorted.sort_by(|a, b| b.size.cmp(&a.size));
+            for block in sorted.iter().take(10) {
+                output.push(Line::raw(format!(
+                    "  0x{:x}  {} KB",
+                    block.address,
+                    block.size / 1024
+                )));
+            }
+            output.push(Line::raw("size distribution:"));
+            let tiny = used.iter().filter(|b| b.size < 64).count();
+            let small = used
+                .iter()
+                .filter(|b| b.size >= 64 && b.size < 1024)
+                .count();
+            let medium = used
+                .iter()
+                .filter(|b| b.size >= 1024 && b.size < 65536)
+                .count();
+            let large = used
+                .iter()
+                .filter(|b| b.size >= 65536 && b.size < 1024 * 1024)
+                .count();
+            let huge = used.iter().filter(|b| b.size >= 1024 * 1024).count();
+            output.push(Line::raw(format!("  tiny   (<64B)   : {}", tiny)));
+            output.push(Line::raw(format!("  small  (<1KB)   : {}", small)));
+            output.push(Line::raw(format!("  medium (<64KB)  : {}", medium)));
+            output.push(Line::raw(format!("  large  (<1MB)   : {}", large)));
+            output.push(Line::raw(format!("  huge   (>=1MB)  : {}", huge)));
+            output.push(Line::raw("assessment:"));
+            let frag = free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0;
+            if frag > 50.0 {
+                output.push(Line::from(Span::styled(
+                    "  high fragmentation — consider heap compaction",
+                    Style::default().fg(Color::Red),
+                )));
+            } else if frag > 25.0 {
+                output.push(Line::from(Span::styled(
+                    "  moderate fragmentation — monitor over time",
+                    Style::default().fg(Color::Yellow),
+                )));
+            } else {
+                output.push(Line::from(Span::styled(
+                    "  low fragmentation — heap is healthy",
+                    Style::default().fg(Color::Green),
+                )));
+            }
+            if huge > 0 {
+                output.push(Line::from(Span::styled(
+                    format!("  {} large allocations (>=1MB) detected", huge),
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
+            output
+        }
+        "-a" => {
+            if json {
+                let labels = classify(&regions);
+                let entries: Vec<RegionEntry> = regions
+                    .iter()
+                    .zip(labels.iter())
+                    .map(|(r, l)| RegionEntry {
+                        base: r.base,
+                        size: r.size,
+                        state: r.state.clone(),
+                        kind: r.kind.clone(),
+                        protect: r.protect.clone(),
+                        name: r.name.clone(),
+                        label: l.to_string(),
+                    })
+                    .collect();
+                let json_str = serde_json::to_string_pretty(&entries).unwrap();
+                if let Some(path) = output_path {
+                    std::fs::write(path, &json_str).expect("failed to write file");
+                    output.push(Line::raw(format!("saved to {}", path)));
+                } else {
+                    for line in json_str.lines() {
+                        output.push(Line::raw(line.to_string()));
+                    }
+                }
+                output
+            } else {
+                let labels = classify(&regions);
+                output.push(render::render_bar_tui(&regions, &labels, 120));
+                output
+            }
+        }
+        "-v" => {
+            let labels = classify(&regions);
+            output.extend(render::render_verbose_tui(&regions, &labels));
+            output
+        }
+        _ => {
+            output.push(Line::raw(format!("Invalid Flag: {}", mode)));
+            output
+        }
+    }
+}
+
 fn heap_mode(pid: u32) -> Vec<HeapBlock> {
     let heaps = walk_heap(pid);
     heaps
@@ -194,12 +348,12 @@ fn classify(regions: &[Region]) -> Vec<&str> {
         };
     }
 
-    // print it
-    for (i, label) in labels.iter().enumerate() {
+    // Deprecated
+    /*for (i, label) in labels.iter().enumerate() {
         if *label != "?" {
             println!("{:<16} 0x{:x}", label, regions[i].base as usize);
         }
-    }
+    }*/
 
     labels
 }

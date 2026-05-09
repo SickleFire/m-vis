@@ -11,6 +11,7 @@
 //! ```
 //!
 use mvis::scan::{leak_command, leak_m_command, scan_with_modes};
+use mvis::tui::tui_main;
 use std::env;
 
 fn main() {
@@ -116,6 +117,9 @@ fn run() -> Result<(), String> {
                 }
                 Err(e) => return Err(e),
             }
+        }
+        "tui" => {
+            let _ = tui_main();
         }
         _ => {
             return Err(format!("unknown command '{}' — run 'mvis --help'", command));

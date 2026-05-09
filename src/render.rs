@@ -30,6 +30,39 @@ pub fn render_bar(regions: &[Region], labels: &[&str], width: usize) {
     println!("{}", bar);
 }
 
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+
+pub fn render_bar_tui(regions: &[Region], labels: &[&str], width: usize) -> Line<'static> {
+    let total: usize = regions.iter().map(|r| r.size).sum();
+    let mut spans: Vec<Span> = vec![];
+
+    for (i, mbi) in regions.iter().enumerate() {
+        let chars = ((mbi.size as f64 / total as f64) * width as f64).max(1.0) as usize;
+
+        let (symbol, color) = match labels[i] {
+            "stack-live" => ("S", Color::Cyan),
+            "stack-guard" => ("G", Color::Red),
+            "stack-reserved" => ("r", Color::DarkGray),
+            "heap" => ("H", Color::Magenta),
+            "image" => ("I", Color::Blue),
+            _ if mbi.state == Free => (".", Color::DarkGray),
+            _ if mbi.kind == Image => ("I", Color::Blue),
+            _ if mbi.kind == Mapped => ("M", Color::Green),
+            _ if mbi.protect == Execute => ("X", Color::Yellow),
+            _ if mbi.state == Reserved => ("r", Color::DarkGray),
+            _ => ("?", Color::DarkGray),
+        };
+
+        spans.push(Span::styled(
+            symbol.repeat(chars),
+            Style::default().fg(color),
+        ));
+    }
+
+    Line::from(spans)
+}
+
 pub fn render_verbose(regions: &[Region], labels: &[&str]) {
     for (i, region) in regions.iter().enumerate() {
         if labels[i] == "?" {
@@ -52,7 +85,31 @@ pub fn render_verbose(regions: &[Region], labels: &[&str]) {
     }
 }
 
-fn format_size(bytes: usize) -> String {
+pub fn render_verbose_tui(regions: &[Region], labels: &[&str]) -> Vec<Line<'static>> {
+    let mut output: Vec<Line> = vec![];
+    for (i, region) in regions.iter().enumerate() {
+        if labels[i] == "?" {
+            continue;
+        }
+
+        let name = if region.name.is_empty() {
+            labels[i].to_string()
+        } else {
+            region.name.clone()
+        };
+
+        output.push(Line::raw(format!(
+            "{:<18} {:<12} {:<16} {}",
+            format!("0x{:x}", region.base),
+            format_size(region.size),
+            labels[i],
+            name,
+        )));
+    }
+    output
+}
+
+pub fn format_size(bytes: usize) -> String {
     if bytes >= 1024 * 1024 {
         format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))
     } else if bytes >= 1024 {
