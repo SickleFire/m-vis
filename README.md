@@ -19,6 +19,9 @@ Our design philosophy is built around simplicity and accessibility because **We 
 ## Status
 Early but functional. Core scanning and leak detection work on both platforms. See the roadmap below for what's coming.
 
+### New TUI
+<img width="1919" height="1024" alt="Screenshot 2026-05-09 194519" src="https://github.com/user-attachments/assets/0454d03d-780e-4095-946c-3006f64544bc" />
+
 ---
 
 ##  Features
@@ -49,6 +52,9 @@ mvis leak-m notepad.exe 10 3
 
 # list processes
 mvis list
+
+#open mvis tui
+mvis tui
 ```
 ### Examples
 ```powershell
@@ -112,7 +118,7 @@ cargo test --test integration_tests -- --include-ignored
 ---
 
 ### Roadmap
-- [ ] TUI frontend for heap analysis (Changed to TUI instead of GUI following our design philosophy of being lightweight)
+- [x] TUI frontend for heap analysis (Changed to TUI instead of GUI following our design philosophy of being lightweight)
 - [ ] Heap fragmentation visualization
 - [ ] Realtime heap scanning
 - [ ] Cross Platform support for MacOS
