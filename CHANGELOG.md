@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0] - 2026-05-05
+### Added
+- Basic TUI with Process List and Heap View
+- mvis tui (command)
+  
+### Known Issues
+- TUI leak and other commands missing
+
 ## [0.1.1] - 2026-05-05
 ### Added
 - Integration test suite
