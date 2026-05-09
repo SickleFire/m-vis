@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.0] - 2026-05-05
+## [0.2.0] - 2026-05-09
 ### Added
 - Basic TUI with Process List and Heap View
 - mvis tui (command)
