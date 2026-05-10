@@ -476,7 +476,10 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
     let trace = {
         match crate::stack_trace::StackTrace::capture(pid, &regions) {
             Ok(t) => {
-                output.push(Line::raw(format!("[dbg] stack captured: {} frames", t.frames.len())));
+                output.push(Line::raw(format!(
+                    "[dbg] stack captured: {} frames",
+                    t.frames.len()
+                )));
                 Ok(t)
             }
             Err(e) => {
@@ -493,13 +496,16 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
         let growth = diff_heap_size(&snapshot1, &snapshot2);
         output.push(Line::raw(format!("heap growth: {} KB", growth / 1024)));
         if growth > 0 {
-            output.push(Line::from(Span::styled(format!(
-                "leak suspected — heap grew by {} KB",
-                growth / 1024),Style::default().fg(Color::Red))
-            ));
+            output.push(Line::from(Span::styled(
+                format!("leak suspected — heap grew by {} KB", growth / 1024),
+                Style::default().fg(Color::Red),
+            )));
 
             if let Ok(t) = trace {
-                output.push(Line::from(Span::styled("call stack at time of snapshot:",Style::default().fg(Color::Cyan))));
+                output.push(Line::from(Span::styled(
+                    "call stack at time of snapshot:",
+                    Style::default().fg(Color::Cyan),
+                )));
                 for (i, frame) in t.frames.iter().enumerate() {
                     output.push(Line::raw(format!("  #{:<2} {}", i, frame.symbol)));
                 }
