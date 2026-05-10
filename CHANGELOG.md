@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1] - 2026-05-10
+### Added
+- leak command for tui
+- leak-m command for tui
+
+### Fixed
+- fixed issue (scan app.exe -h has println in tui v0.2.0)
+- fixed frag ratio to show fragmentation
+
 ## [0.2.0] - 2026-05-09
 ### Added
 - Basic TUI with Process List and Heap View
