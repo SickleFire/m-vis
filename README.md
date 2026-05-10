@@ -20,7 +20,12 @@ Our design philosophy is built around simplicity and accessibility because **We 
 Early but functional. Core scanning and leak detection work on both platforms. See the roadmap below for what's coming.
 
 ### New TUI
-<img width="1919" height="1024" alt="Screenshot 2026-05-09 194519" src="https://github.com/user-attachments/assets/0454d03d-780e-4095-946c-3006f64544bc" />
+<img width="1919" height="1017" alt="Screenshot 2026-05-10 212750" src="https://github.com/user-attachments/assets/30f14282-d54b-4cf2-8f07-8ba215c31725" />
+. <br>
+. <br>
+. <br>
+
+<img width="1919" height="1024" alt="Screenshot 2026-05-10 212718" src="https://github.com/user-attachments/assets/a6c0b624-dc65-4eb8-bc47-95bc89b9036c" />
 
 ---
 
