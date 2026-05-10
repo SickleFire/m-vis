@@ -465,7 +465,6 @@ pub fn leak_command(pid: u32, interval: u64) {
     }
 }
 
-//[TODO implement TUI in Linux]
 pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
     let mut output: Vec<Line> = vec![];
     let snapshot1 = heap_mode(pid);
@@ -477,11 +476,11 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
     let trace = {
         match crate::stack_trace::StackTrace::capture(pid, &regions) {
             Ok(t) => {
-                eprintln!("[dbg] stack captured: {} frames", t.frames.len());
+                output.push(Line::raw(format!("[dbg] stack captured: {} frames", t.frames.len())));
                 Ok(t)
             }
             Err(e) => {
-                eprintln!("[dbg] stack capture failed: {}", e);
+                output.push(Line::raw(format!("[dbg] stack capture failed: {}", e)));
                 Err(e)
             }
         }
@@ -492,21 +491,21 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
     #[cfg(target_os = "linux")]
     {
         let growth = diff_heap_size(&snapshot1, &snapshot2);
-        println!("heap growth: {} KB", growth / 1024);
+        output.push(Line::raw(format!("heap growth: {} KB", growth / 1024)));
         if growth > 0 {
-            println!(
-                "\x1b[31mleak suspected — heap grew by {} KB\x1b[0m",
-                growth / 1024
-            );
+            output.push(Line::from(vec![Span::styled(format!(
+                "leak suspected — heap grew by {} KB",
+                growth / 1024),Style::default().fg(Color::Green))
+            ]));
 
             if let Ok(t) = trace {
-                println!("\ncall stack at time of snapshot:");
+                output.push(Line::from(vec![Span::styled(format!("\ncall stack at time of snapshot:")),Style::default()]));
                 for (i, frame) in t.frames.iter().enumerate() {
-                    println!("  #{:<2} {}", i, frame.symbol);
+                    output.push(format!("  #{:<2} {}", i, frame.symbol));
                 }
             }
         } else {
-            println!("no leak detected");
+            output.push(format!("no leak detected"));
         }
     }
 
