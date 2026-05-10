@@ -493,19 +493,19 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
         let growth = diff_heap_size(&snapshot1, &snapshot2);
         output.push(Line::raw(format!("heap growth: {} KB", growth / 1024)));
         if growth > 0 {
-            output.push(Line::from(vec![Span::styled(format!(
+            output.push(Line::from(Span::styled(format!(
                 "leak suspected — heap grew by {} KB",
-                growth / 1024),Style::default().fg(Color::Green))
-            ]));
+                growth / 1024),Style::default().fg(Color::Red))
+            ));
 
             if let Ok(t) = trace {
-                output.push(Line::from(vec![Span::styled(format!("\ncall stack at time of snapshot:")),Style::default()]));
+                output.push(Line::from(Span::styled(format!("call stack at time of snapshot:")),Style::default()));
                 for (i, frame) in t.frames.iter().enumerate() {
                     output.push(format!("  #{:<2} {}", i, frame.symbol));
                 }
             }
         } else {
-            output.push(format!("no leak detected"));
+            output.push(Line::raw(format!("no leak detected")));
         }
     }
 
