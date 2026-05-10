@@ -499,14 +499,15 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
             ));
 
             if let Ok(t) = trace {
-                output.push(Line::from(Span::styled(format!("call stack at time of snapshot:")),Style::default()));
+                output.push(Line::from(Span::styled("call stack at time of snapshot:",Style::default().fg(Color::Cyan))));
                 for (i, frame) in t.frames.iter().enumerate() {
-                    output.push(format!("  #{:<2} {}", i, frame.symbol));
+                    output.push(Line::raw(format!("  #{:<2} {}", i, frame.symbol)));
                 }
             }
         } else {
             output.push(Line::raw(format!("no leak detected")));
         }
+        output
     }
 
     #[cfg(target_os = "windows")]
