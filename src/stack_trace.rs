@@ -9,9 +9,11 @@
 //!   frames and resolve symbols from loaded modules.
 //!
 //! ## Usage
-//! ```rust
+//! ```ignore
+//! use mvis::stack_trace::StackTrace;
+//!
 //! let regions = mvis::os::walk_regions(pid);
-//! let trace   = StackTrace::capture(pid, &regions)?;
+//! let trace   = StackTrace::capture(pid, &regions).unwrap();
 //! for frame in &trace.frames {
 //!     println!("0x{:x}  {}", frame.instruction_pointer, frame.symbol);
 //! }

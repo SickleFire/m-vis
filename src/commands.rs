@@ -1,6 +1,5 @@
 use crate::scan::leak_command_tui;
 use crate::scan::scan_with_modes_tui;
-use crate::scan::leak_m_command_tui;
 use ratatui::text::Line;
 
 use crate::types::HeapBlock;
@@ -16,13 +15,15 @@ pub struct ScanResult {
     pub frag: f64,
 }
 
-pub fn leak_m(args: Vec<&str>) -> Result<Vec<Line<'static>>, String> {
+use std::sync::mpsc::Sender;
+
+pub fn leak_m(args: Vec<&str>, tx: Sender<Line<'static>>) -> Result<(), String> {
     let queryp = args[1];
     let pid = find_pid(queryp.to_string())?;
     let interval: u64 = args[2].parse().unwrap();
     let samples: u64 = args[3].parse().unwrap();
-    let lines = leak_m_command_tui(pid, interval, samples);
-    Ok(lines)
+    crate::scan::leak_m_command_tui(pid, interval, samples, tx);
+    Ok(())
 }
 
 pub fn leak(args: Vec<&str>) -> Result<Vec<Line<'static>>, String> {
@@ -57,9 +58,15 @@ pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {
 
         let used_bytes: usize = raw.iter().filter(|b| !b.is_free).map(|b| b.size).sum();
         let free_bytes: usize = raw.iter().filter(|b| b.is_free).map(|b| b.size).sum();
-        let total = used_bytes + free_bytes;
-        let frag = if total > 0 {
-            free_bytes as f64 / total as f64 * 100.0
+        let largest_free = raw
+            .iter()
+            .filter(|b| b.is_free)
+            .map(|b| b.size)
+            .max()
+            .unwrap_or(0);
+
+        let frag = if free_bytes > 0 {
+            (1.0 - (largest_free as f64 / free_bytes as f64)) * 100.0
         } else {
             0.0
         };

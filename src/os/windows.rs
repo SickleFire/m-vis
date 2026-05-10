@@ -91,7 +91,7 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
         OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
     };
 
-    let t = std::time::Instant::now();
+    let _t = std::time::Instant::now();
     let mut blocks = Vec::with_capacity(50_000);
 
     unsafe {

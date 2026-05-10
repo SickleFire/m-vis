@@ -12,6 +12,12 @@ use crate::commands;
 use crate::render::format_size;
 use crate::types::HeapBlock;
 
+enum AppEvent {
+    ScanResult(commands::ScanResult),
+    ScanError(String),
+    Output(Line<'static>),
+}
+
 pub fn tui_main() -> Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init(); // replaces ratatui::run
@@ -51,6 +57,10 @@ struct App {
     alloc_table_page_size: usize, // rows per page, derived from panel height
     alloc_table_selected: usize,  // highlighted row
     heap_view_mode: HeapViewMode,
+    tx: std::sync::mpsc::Sender<AppEvent>,
+    rx: std::sync::mpsc::Receiver<AppEvent>,
+    is_loading: bool,
+    loading_msg: String,
 }
 enum HeapViewMode {
     Metrics,     // high-level view
@@ -63,6 +73,7 @@ enum InputMode {
 
 impl App {
     fn new() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
         let mut app = Self {
             input: String::new(),
             input_mode: InputMode::Normal,
@@ -78,6 +89,10 @@ impl App {
             alloc_table_page_size: 0,
             alloc_table_selected: 0,
             heap_view_mode: HeapViewMode::Metrics,
+            tx,
+            rx,
+            is_loading: false,
+            loading_msg: String::new(),
         };
         app.push_message("mvis ready. type 'help' for commands.".into());
         app
@@ -207,66 +222,75 @@ impl App {
 
         match parts.clone().as_slice() {
             ["leak-m", _proc, _secs, _samples] => {
+                let proc_name = _proc.to_string();
+                let secs = _secs.to_string();
+                let samples = _samples.to_string();
+                let tx = self.tx.clone();
 
+                self.push_message(format!("starting leak-m for {}...", proc_name));
+
+                std::thread::spawn(move || {
+                    let (line_tx, line_rx) = std::sync::mpsc::channel::<Line<'static>>();
+                    let tx2 = tx.clone();
+
+                    std::thread::spawn(move || {
+                        let args = vec![
+                            "leak-m",
+                            proc_name.as_str(),
+                            secs.as_str(),
+                            samples.as_str(),
+                        ];
+                        if let Err(e) = commands::leak_m(args, line_tx) {
+                            tx2.send(AppEvent::Output(Line::from(Span::styled(
+                                format!("error: {}", e),
+                                Style::default().fg(Color::Red),
+                            ))))
+                            .ok();
+                        }
+                    });
+
+                    while let Ok(line) = line_rx.recv() {
+                        tx.send(AppEvent::Output(line)).ok();
+                    }
+                });
             }
-            ["leak", _proc, _secs] => match commands::leak(parts){
+            ["leak", _proc, _secs] => match commands::leak(parts) {
                 Ok(result) => {
                     for line in result {
                         self.push_line(line);
                     }
                 }
-                Err(e) => self.push_message(format!("Error: {e}"))
-            }
-            ["scan", _proc, "-v"] => match commands::scan(parts){
-                Ok(result) => {
-                    self.current_proc = Some(_proc.to_string());
-                    self.current_pid = Some(result.pid);
-                    self.current_memory_mb = Some(result.memory_mb);
-                    for line in result.lines {
-                        self.push_line(line);
-                    }
-                }
-                Err(e) => self.push_message(format!("Error: {e}"))
-            }
-            ["scan", _proc, "-h"] => match commands::scan(parts) {
-                Ok(result) => {
-                    self.current_proc = Some(_proc.to_string());
-                    self.current_pid = Some(result.pid);
-                    self.current_memory_mb = Some(result.memory_mb);
-                    for line in result.lines {
-                        self.push_line(line);
-                    }
-                    let used: Vec<_> = result.blocks.iter().filter(|b| !b.is_free).collect();
-                    let free: Vec<_> = result.blocks.iter().filter(|b| b.is_free).collect();
-
-                    self.heap_history.push(HeapSnapshot {
-                        fragmentation: result.frag,
-                        used_blocks: used.len(),
-                        free_blocks: free.len(),
-                        used_bytes: result.used_bytes,
-                        free_bytes: result.free_bytes,
-                        largest_used: used.iter().map(|b| b.size).max().unwrap_or(0),
-                        largest_free: free.iter().map(|b| b.size).max().unwrap_or(0),
-                        blocks: result.blocks,
-                    });
-
-                    if self.heap_history.len() > 4 {
-                        self.heap_history.remove(0);
-                    }
-                }
                 Err(e) => self.push_message(format!("Error: {e}")),
             },
-            ["scan", _proc, "-a"] => match commands::scan(parts) {
-                Ok(result) => {
-                    self.current_proc = Some(_proc.to_string());
-                    self.current_pid = Some(result.pid);
-                    self.current_memory_mb = Some(result.memory_mb);
-                    for line in result.lines {
-                        self.push_line(line);
-                    }
-                }
-                Err(e) => self.push_message(format!("Error: {e}")),
-            },
+            ["scan", _proc, "-h"] => {
+                let proc_name = _proc.to_string();
+                let parts_owned: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
+                let tx = self.tx.clone();
+                self.is_loading = true;
+                self.loading_msg = format!("scanning heap for {}...", proc_name);
+                self.push_message(self.loading_msg.clone());
+
+                std::thread::spawn(move || {
+                    let parts_ref: Vec<&str> = parts_owned.iter().map(|s| s.as_str()).collect();
+                    match commands::scan(parts_ref) {
+                        Ok(result) => tx.send(AppEvent::ScanResult(result)).ok(),
+                        Err(e) => tx.send(AppEvent::ScanError(e)).ok(),
+                    };
+                });
+            }
+            ["scan", _proc, "-a"] | ["scan", _proc, "-v"] => {
+                let parts_owned: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
+                let tx = self.tx.clone();
+                self.push_message(format!("scanning {}...", _proc));
+
+                std::thread::spawn(move || {
+                    let parts_ref: Vec<&str> = parts_owned.iter().map(|s| s.as_str()).collect();
+                    match commands::scan(parts_ref) {
+                        Ok(result) => tx.send(AppEvent::ScanResult(result)).ok(),
+                        Err(e) => tx.send(AppEvent::ScanError(e)).ok(),
+                    };
+                });
+            }
             ["list"] => match commands::list_processes(parts) {
                 Ok(procs) => {
                     for p in procs {
@@ -277,9 +301,12 @@ impl App {
             },
             ["help"] => {
                 self.push_message("commands:".into());
-                self.push_message("  scan <proc> -a    memory map".into());
-                self.push_message("  scan <proc> -h    heap stats".into());
-                self.push_message("  list              list processes".into());
+                self.push_message("  scan   <proc> -a          memory map".into());
+                self.push_message("  scan   <proc> -h          heap stats".into());
+                self.push_message("  scan   <proc> -v          loaded dlls".into());
+                self.push_message("  leak   <proc> secs        detect leaks".into());
+                self.push_message("  leak-m <proc> secs samp   detect leaks-samples".into());
+                self.push_message("  list                      list processes".into());
             }
             _ => {
                 self.push_message(format!("unknown command: {raw}"));
@@ -291,47 +318,85 @@ impl App {
 
     fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         loop {
+            // check for background results
+            while let Ok(event) = self.rx.try_recv() {
+                match event {
+                    AppEvent::ScanResult(result) => {
+                        //Updates Heap View doesnt Differentiate between -h, -a or -v
+                        self.is_loading = false;
+                        self.current_proc = Some(result.pid.to_string());
+                        self.current_pid = Some(result.pid);
+                        self.current_memory_mb = Some(result.memory_mb);
+
+                        for line in result.lines {
+                            self.push_line(line);
+                        }
+
+                        let used: Vec<_> = result.blocks.iter().filter(|b| !b.is_free).collect();
+                        let free: Vec<_> = result.blocks.iter().filter(|b| b.is_free).collect();
+
+                        self.heap_history.push(HeapSnapshot {
+                            fragmentation: result.frag,
+                            used_blocks: used.len(),
+                            free_blocks: free.len(),
+                            used_bytes: result.used_bytes,
+                            free_bytes: result.free_bytes,
+                            largest_used: used.iter().map(|b| b.size).max().unwrap_or(0),
+                            largest_free: free.iter().map(|b| b.size).max().unwrap_or(0),
+                            blocks: result.blocks,
+                        });
+
+                        if self.heap_history.len() > 4 {
+                            self.heap_history.remove(0);
+                        }
+                    }
+                    AppEvent::ScanError(e) => {
+                        self.is_loading = false;
+                        self.push_message(format!("error: {}", e));
+                    }
+                    AppEvent::Output(line) => {
+                        self.push_line(line);
+                    }
+                }
+            }
+
             terminal.draw(|frame| self.render(frame))?;
 
-            if let Some(key) = event::read()?.as_key_press_event() {
-                match self.input_mode {
-                    InputMode::Normal => match key.code {
-                        KeyCode::Char('e') => {
-                            self.input_mode = InputMode::Editing;
-                        }
-                        KeyCode::Char('q') => {
-                            return Ok(());
-                        }
-                        KeyCode::Up => self.scroll_up(),
-                        KeyCode::Down => self.scroll_down(),
-                        // toggle between metrics and table with Tab
-                        KeyCode::Tab => {
-                            self.heap_view_mode = match self.heap_view_mode {
-                                HeapViewMode::Metrics => HeapViewMode::Allocations,
-                                HeapViewMode::Allocations => HeapViewMode::Metrics,
-                            };
-                        }
-                        // page through table
-                        KeyCode::Char(']') => self.next_page(),
-                        KeyCode::Char('[') => self.prev_page(),
-                        // row selection within page
-                        KeyCode::Char('j') => self.select_next_row(),
-                        KeyCode::Char('k') => self.select_prev_row(),
-                        _ => {}
-                    },
-                    InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
-                        KeyCode::Enter => self.submit_message(),
-                        KeyCode::Char(to_insert) => self.enter_char(to_insert),
-                        KeyCode::Backspace => self.delete_char(),
-                        KeyCode::Left => self.move_cursor_left(),
-                        KeyCode::Right => self.move_cursor_right(),
-                        KeyCode::Up => self.scroll_up(),
-                        KeyCode::Down => self.scroll_down(),
-                        KeyCode::Esc => self.input_mode = InputMode::Normal,
-                        _ => {}
-                    },
-
-                    InputMode::Editing => {}
+            if crossterm::event::poll(std::time::Duration::from_millis(100))? {
+                if let Some(key) = event::read()?.as_key_press_event() {
+                    match self.input_mode {
+                        InputMode::Normal => match key.code {
+                            KeyCode::Char('e') => self.input_mode = InputMode::Editing,
+                            KeyCode::Char('q') => return Ok(()),
+                            KeyCode::Up => self.scroll_up(),
+                            KeyCode::Down => self.scroll_down(),
+                            KeyCode::Tab => {
+                                self.heap_view_mode = match self.heap_view_mode {
+                                    HeapViewMode::Metrics => HeapViewMode::Allocations,
+                                    HeapViewMode::Allocations => HeapViewMode::Metrics,
+                                };
+                            }
+                            //page through table
+                            KeyCode::Char(']') => self.next_page(),
+                            KeyCode::Char('[') => self.prev_page(),
+                            //row selection between page
+                            KeyCode::Char('j') => self.select_next_row(),
+                            KeyCode::Char('k') => self.select_prev_row(),
+                            _ => {}
+                        },
+                        InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
+                            KeyCode::Enter => self.submit_message(),
+                            KeyCode::Char(to_insert) => self.enter_char(to_insert),
+                            KeyCode::Backspace => self.delete_char(),
+                            KeyCode::Left => self.move_cursor_left(),
+                            KeyCode::Right => self.move_cursor_right(),
+                            KeyCode::Up => self.scroll_up(),
+                            KeyCode::Down => self.scroll_down(),
+                            KeyCode::Esc => self.input_mode = InputMode::Normal,
+                            _ => {}
+                        },
+                        InputMode::Editing => {}
+                    }
                 }
             }
         }
@@ -477,46 +542,90 @@ impl App {
         };
 
         frame.render_widget(
-            Paragraph::new(heap_lines).block(Block::bordered().title(match self.heap_view_mode {
-                HeapViewMode::Metrics => "Heap View [Tab for table]",
-                HeapViewMode::Allocations => "Heap View [Tab for metrics]",
-            }).fg(Color::Green)),
+            Paragraph::new(heap_lines).block(
+                Block::bordered()
+                    .title(match self.heap_view_mode {
+                        HeapViewMode::Metrics => "Heap View [Tab for table]",
+                        HeapViewMode::Allocations => "Heap View [Tab for metrics]",
+                    })
+                    .fg(Color::Green),
+            ),
             innerlayout[1],
         );
 
         let footer_text = match self.input_mode {
-        InputMode::Normal => Line::from(vec![
-            Span::styled(" NORMAL ", Style::default().fg(Color::Black).bg(Color::Green)),
-            Span::raw("  press "),
-            Span::styled("e", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(" to type a command  •  "),
-            Span::styled("q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(" to quit  •  "),
-            Span::styled("tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(" toggle heap view  •  "),
-            Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(" scroll output  •  "),
-            Span::styled("[/]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(" prev/next page"),
-        ]),
-        InputMode::Editing => Line::from(vec![
-            Span::styled(" INSERT ", Style::default().fg(Color::Black).bg(Color::Yellow)),
-            Span::raw("  try: "),
-            Span::styled("scan notepad.exe -a", Style::default().fg(Color::Cyan)),
-            Span::raw("  •  "),
-            Span::styled("scan notepad.exe -h", Style::default().fg(Color::Cyan)),
-            Span::raw("  •  "),
-            Span::styled("leak notepad.exe 10", Style::default().fg(Color::Cyan)),
-            Span::raw("  •  "),
-            Span::styled("list", Style::default().fg(Color::Cyan)),
-            Span::raw("  •  "),
-            Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(" to exit insert"),
-        ]),
-    };
+            InputMode::Normal => Line::from(vec![
+                Span::styled(
+                    " NORMAL ",
+                    Style::default().fg(Color::Black).bg(Color::Green),
+                ),
+                Span::raw("  press "),
+                Span::styled(
+                    "e",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" to type a command  •  "),
+                Span::styled(
+                    "q",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" to quit  •  "),
+                Span::styled(
+                    "tab",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" toggle heap view  •  "),
+                Span::styled(
+                    "↑↓",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" scroll output  •  "),
+                Span::styled(
+                    "[/]",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" prev/next page"),
+            ]),
+            InputMode::Editing => Line::from(vec![
+                Span::styled(
+                    " INSERT ",
+                    Style::default().fg(Color::Black).bg(Color::Yellow),
+                ),
+                Span::raw("  try: "),
+                Span::styled("scan notepad.exe -a", Style::default().fg(Color::Cyan)),
+                Span::raw("  •  "),
+                Span::styled("scan notepad.exe -h", Style::default().fg(Color::Cyan)),
+                Span::raw("  •  "),
+                Span::styled("leak notepad.exe 10", Style::default().fg(Color::Cyan)),
+                Span::raw("  •  "),
+                Span::styled("list", Style::default().fg(Color::Cyan)),
+                Span::raw("  •  "),
+                Span::styled(
+                    "Esc",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" to exit insert"),
+            ]),
+        };
 
-    frame.render_widget(
-        Paragraph::new(footer_text).block(Block::new().borders(Borders::ALL)).wrap(Wrap { trim: true }),footer,);
+        frame.render_widget(
+            Paragraph::new(footer_text)
+                .block(Block::new().borders(Borders::ALL))
+                .wrap(Wrap { trim: true }),
+            footer,
+        );
     }
 }
 

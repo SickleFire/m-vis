@@ -42,10 +42,21 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
             println!("total blocks : {}", blocks.len());
             println!("used blocks  : {} ({} KB)", used.len(), used_bytes / 1024);
             println!("free blocks  : {} ({} KB)", free.len(), free_bytes / 1024);
-            println!(
-                "fragmentation: {:.1}%",
-                free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0
-            );
+
+            let largest_free = blocks
+                .iter()
+                .filter(|b| b.is_free)
+                .map(|b| b.size)
+                .max()
+                .unwrap_or(0);
+
+            let frag = if free_bytes > 0 {
+                (1.0 - (largest_free as f64 / free_bytes as f64)) * 100.0
+            } else {
+                0.0
+            };
+
+            println!("fragmentation: {:.1}%", frag);
             // top 10 largest allocations
             println!("\ntop 10 largest allocations:");
             let mut sorted = used.clone();
@@ -146,7 +157,7 @@ pub fn scan_with_modes_tui(
     let mut output: Vec<Line> = vec![];
     let regions = walk_regions(pid);
 
-    if !json {
+    if !json && !(mode != "-h" || mode != "-v") {
         output.push(Line::from(vec![
             Span::styled("I", Style::default().fg(Color::Blue)),
             Span::raw(" image  "),
@@ -173,6 +184,19 @@ pub fn scan_with_modes_tui(
             let used_bytes: usize = used.par_iter().map(|b| b.size).sum();
             let free_bytes: usize = free.par_iter().map(|b| b.size).sum();
 
+            let largest_free = blocks
+                .iter()
+                .filter(|b| b.is_free)
+                .map(|b| b.size)
+                .max()
+                .unwrap_or(0);
+
+            let frag = if free_bytes > 0 {
+                (1.0 - (largest_free as f64 / free_bytes as f64)) * 100.0
+            } else {
+                0.0
+            };
+
             output.push(Line::raw(format!("total blocks : {}", blocks.len())));
             output.push(Line::raw(format!(
                 "used blocks  : {} ({} KB)",
@@ -184,10 +208,7 @@ pub fn scan_with_modes_tui(
                 free.len(),
                 free_bytes / 1024
             )));
-            output.push(Line::raw(format!(
-                "fragmentation: {:.1}%",
-                free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0
-            )));
+            output.push(Line::raw(format!("fragmentation: {:.1}%", frag)));
             output.push(Line::raw("top 10 largest allocations:"));
             let mut sorted = used.clone();
             sorted.sort_by(|a, b| b.size.cmp(&a.size));
@@ -493,24 +514,29 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
     {
         let results = diff_snapshots(&snapshot1, &snapshot2);
         let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
-        output.push(Line::raw(format!("snapshot 1 → snapshot 2 ({}s interval)", interval)));
+        output.push(Line::raw(format!(
+            "snapshot 1 → snapshot 2 ({}s interval)",
+            interval
+        )));
         output.push(Line::raw(format!("new allocations : {}", results.len())));
-        output.push(Line::raw(format!("new bytes       : {} KB", new_bytes / 1024)));
+        output.push(Line::raw(format!(
+            "new bytes       : {} KB",
+            new_bytes / 1024
+        )));
         if results.is_empty() {
-            output.push(Line::from(vec![
-                Span::styled(
-                    "no leak detected",
-                    Style::default().fg(Color::Green),
-                ),
-            ]));
+            output.push(Line::from(vec![Span::styled(
+                "no leak detected",
+                Style::default().fg(Color::Green),
+            )]));
             output
         } else {
-           output.push(Line::from(vec![
-                Span::styled(
-                    format!("leak suspected — {} KB of new allocations", new_bytes / 1024),
-                    Style::default().fg(Color::Red),
+            output.push(Line::from(vec![Span::styled(
+                format!(
+                    "leak suspected — {} KB of new allocations",
+                    new_bytes / 1024
                 ),
-            ]));
+                Style::default().fg(Color::Red),
+            )]));
             output
         }
     }
@@ -540,33 +566,42 @@ pub fn leak_m_command(pid: u32, interval: u64, samples: u64) {
     }
 }
 
-pub fn leak_m_command_tui(pid: u32, interval: u64, samples: u64) -> Vec<Line<'static>>{
-    let mut output: Vec<Line<'static>> = vec![];
+use std::sync::mpsc::Sender;
+
+pub fn leak_m_command_tui(pid: u32, interval: u64, samples: u64, tx: Sender<Line<'static>>) {
     let mut prev = heap_mode(pid);
+
     for i in 0..samples {
+        tx.send(Line::raw(format!("waiting {}s...", interval))).ok();
         sleep(Duration::new(interval, 0));
+
         let next = heap_mode(pid);
         let results = diff_snapshots(&prev, &next);
         let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
 
-        output.push(Line::raw(format!("sample {} ", i + 1)));
+        tx.send(Line::raw(format!("sample {}/{}", i + 1, samples)))
+            .ok();
+
         let status_span = if results.is_empty() {
             Span::styled("ok", Style::default().fg(Color::Green))
         } else {
             Span::styled("leak suspected", Style::default().fg(Color::Red))
         };
 
-        output.push(Line::from(vec![
+        tx.send(Line::from(vec![
             Span::raw(format!(
-                "new allocations: {}  new bytes: {} KB  ",
+                "  new allocations: {}  new bytes: {} KB  ",
                 results.len(),
                 new_bytes / 1024,
             )),
             status_span,
-        ]));
+        ]))
+        .ok();
+
         prev = next;
     }
-    output
+
+    tx.send(Line::raw("leak-m complete")).ok();
 }
 
 #[cfg(test)]
