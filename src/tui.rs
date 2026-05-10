@@ -206,6 +206,28 @@ impl App {
         let parts: Vec<&str> = raw.split_whitespace().collect();
 
         match parts.clone().as_slice() {
+            ["leak-m", _proc, _secs, _samples] => {
+
+            }
+            ["leak", _proc, _secs] => match commands::leak(parts){
+                Ok(result) => {
+                    for line in result {
+                        self.push_line(line);
+                    }
+                }
+                Err(e) => self.push_message(format!("Error: {e}"))
+            }
+            ["scan", _proc, "-v"] => match commands::scan(parts){
+                Ok(result) => {
+                    self.current_proc = Some(_proc.to_string());
+                    self.current_pid = Some(result.pid);
+                    self.current_memory_mb = Some(result.memory_mb);
+                    for line in result.lines {
+                        self.push_line(line);
+                    }
+                }
+                Err(e) => self.push_message(format!("Error: {e}"))
+            }
             ["scan", _proc, "-h"] => match commands::scan(parts) {
                 Ok(result) => {
                     self.current_proc = Some(_proc.to_string());
@@ -329,12 +351,14 @@ impl App {
             Constraint::Length(1),
             Constraint::Length(3),
             Constraint::Min(1),
+            Constraint::Length(5),
         ])
         .split(outerlayout[0]);
 
         let help_area = layout[0];
         let input_area = layout[1];
         let messages_area = layout[2];
+        let footer = layout[3];
 
         self.messages_height = messages_area.height.saturating_sub(2);
 
@@ -456,9 +480,43 @@ impl App {
             Paragraph::new(heap_lines).block(Block::bordered().title(match self.heap_view_mode {
                 HeapViewMode::Metrics => "Heap View [Tab for table]",
                 HeapViewMode::Allocations => "Heap View [Tab for metrics]",
-            })),
+            }).fg(Color::Green)),
             innerlayout[1],
         );
+
+        let footer_text = match self.input_mode {
+        InputMode::Normal => Line::from(vec![
+            Span::styled(" NORMAL ", Style::default().fg(Color::Black).bg(Color::Green)),
+            Span::raw("  press "),
+            Span::styled("e", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw(" to type a command  •  "),
+            Span::styled("q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw(" to quit  •  "),
+            Span::styled("tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw(" toggle heap view  •  "),
+            Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw(" scroll output  •  "),
+            Span::styled("[/]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw(" prev/next page"),
+        ]),
+        InputMode::Editing => Line::from(vec![
+            Span::styled(" INSERT ", Style::default().fg(Color::Black).bg(Color::Yellow)),
+            Span::raw("  try: "),
+            Span::styled("scan notepad.exe -a", Style::default().fg(Color::Cyan)),
+            Span::raw("  •  "),
+            Span::styled("scan notepad.exe -h", Style::default().fg(Color::Cyan)),
+            Span::raw("  •  "),
+            Span::styled("leak notepad.exe 10", Style::default().fg(Color::Cyan)),
+            Span::raw("  •  "),
+            Span::styled("list", Style::default().fg(Color::Cyan)),
+            Span::raw("  •  "),
+            Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw(" to exit insert"),
+        ]),
+    };
+
+    frame.render_widget(
+        Paragraph::new(footer_text).block(Block::new().borders(Borders::ALL)).wrap(Wrap { trim: true }),footer,);
     }
 }
 

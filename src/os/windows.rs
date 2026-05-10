@@ -124,8 +124,6 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
             }
         }
 
-        eprintln!("heap count: {}", heap_bases.len());
-
         // for each heap base, walk all committed regions and parse block headers
         for heap_base in heap_bases {
             let mut addr = heap_base;
@@ -206,11 +204,5 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
 
         CloseHandle(proc_handle).ok();
     }
-
-    eprintln!(
-        "walk_heap: {}ms {} blocks",
-        t.elapsed().as_millis(),
-        blocks.len()
-    );
     blocks
 }

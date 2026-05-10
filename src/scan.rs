@@ -444,6 +444,78 @@ pub fn leak_command(pid: u32, interval: u64) {
     }
 }
 
+//[TODO implement TUI in Linux]
+pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
+    let mut output: Vec<Line> = vec![];
+    let snapshot1 = heap_mode(pid);
+    let dur = Duration::new(interval, 0);
+    #[cfg(target_os = "linux")]
+    let regions = walk_regions(pid);
+
+    #[cfg(target_os = "linux")]
+    let trace = {
+        match crate::stack_trace::StackTrace::capture(pid, &regions) {
+            Ok(t) => {
+                eprintln!("[dbg] stack captured: {} frames", t.frames.len());
+                Ok(t)
+            }
+            Err(e) => {
+                eprintln!("[dbg] stack capture failed: {}", e);
+                Err(e)
+            }
+        }
+    };
+    sleep(dur);
+    let snapshot2 = heap_mode(pid);
+
+    #[cfg(target_os = "linux")]
+    {
+        let growth = diff_heap_size(&snapshot1, &snapshot2);
+        println!("heap growth: {} KB", growth / 1024);
+        if growth > 0 {
+            println!(
+                "\x1b[31mleak suspected — heap grew by {} KB\x1b[0m",
+                growth / 1024
+            );
+
+            if let Ok(t) = trace {
+                println!("\ncall stack at time of snapshot:");
+                for (i, frame) in t.frames.iter().enumerate() {
+                    println!("  #{:<2} {}", i, frame.symbol);
+                }
+            }
+        } else {
+            println!("no leak detected");
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let results = diff_snapshots(&snapshot1, &snapshot2);
+        let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
+        output.push(Line::raw(format!("snapshot 1 → snapshot 2 ({}s interval)", interval)));
+        output.push(Line::raw(format!("new allocations : {}", results.len())));
+        output.push(Line::raw(format!("new bytes       : {} KB", new_bytes / 1024)));
+        if results.is_empty() {
+            output.push(Line::from(vec![
+                Span::styled(
+                    "no leak detected",
+                    Style::default().fg(Color::Green),
+                ),
+            ]));
+            output
+        } else {
+           output.push(Line::from(vec![
+                Span::styled(
+                    format!("leak suspected — {} KB of new allocations", new_bytes / 1024),
+                    Style::default().fg(Color::Red),
+                ),
+            ]));
+            output
+        }
+    }
+}
+
 pub fn leak_m_command(pid: u32, interval: u64, samples: u64) {
     let mut prev = heap_mode(pid);
     for i in 0..samples {
@@ -466,6 +538,35 @@ pub fn leak_m_command(pid: u32, interval: u64, samples: u64) {
 
         prev = next;
     }
+}
+
+pub fn leak_m_command_tui(pid: u32, interval: u64, samples: u64) -> Vec<Line<'static>>{
+    let mut output: Vec<Line<'static>> = vec![];
+    let mut prev = heap_mode(pid);
+    for i in 0..samples {
+        sleep(Duration::new(interval, 0));
+        let next = heap_mode(pid);
+        let results = diff_snapshots(&prev, &next);
+        let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
+
+        output.push(Line::raw(format!("sample {} ", i + 1)));
+        let status_span = if results.is_empty() {
+            Span::styled("ok", Style::default().fg(Color::Green))
+        } else {
+            Span::styled("leak suspected", Style::default().fg(Color::Red))
+        };
+
+        output.push(Line::from(vec![
+            Span::raw(format!(
+                "new allocations: {}  new bytes: {} KB  ",
+                results.len(),
+                new_bytes / 1024,
+            )),
+            status_span,
+        ]));
+        prev = next;
+    }
+    output
 }
 
 #[cfg(test)]

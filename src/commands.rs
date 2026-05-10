@@ -1,4 +1,6 @@
+use crate::scan::leak_command_tui;
 use crate::scan::scan_with_modes_tui;
+use crate::scan::leak_m_command_tui;
 use ratatui::text::Line;
 
 use crate::types::HeapBlock;
@@ -12,6 +14,23 @@ pub struct ScanResult {
     pub used_bytes: usize,
     pub free_bytes: usize,
     pub frag: f64,
+}
+
+pub fn leak_m(args: Vec<&str>) -> Result<Vec<Line<'static>>, String> {
+    let queryp = args[1];
+    let pid = find_pid(queryp.to_string())?;
+    let interval: u64 = args[2].parse().unwrap();
+    let samples: u64 = args[3].parse().unwrap();
+    let lines = leak_m_command_tui(pid, interval, samples);
+    Ok(lines)
+}
+
+pub fn leak(args: Vec<&str>) -> Result<Vec<Line<'static>>, String> {
+    let queryp = args[1];
+    let pid = find_pid(queryp.to_string()).unwrap();
+    let interval: u64 = args[2].parse().unwrap();
+    let lines = leak_command_tui(pid, interval);
+    Ok(lines)
 }
 
 pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {
