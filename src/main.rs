@@ -100,7 +100,7 @@ fn run() -> Result<(), String> {
             println!("-v :Verbose Mode");
         }
         "version" | "--version" | "-v" => {
-            println!("Mvis v0.1.1");
+            println!("{}", mvis::version);
         }
         #[cfg(target_os = "windows")]
         "wintrace" => {

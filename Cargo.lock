@@ -843,7 +843,7 @@ dependencies = [
 
 [[package]]
 name = "mvis"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "addr2line 0.24.2",
  "color-eyre",
