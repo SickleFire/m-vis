@@ -770,7 +770,7 @@ fn render_alloc_table(
 
         lines.push(Line::from(Span::styled(
             format!(
-                "{:<5} {:<18} {:<12} {:<8}, {}",
+                "{:<5} {:<18} {:<12} {:<8} {}",
                 idx,
                 format!("0x{:x}", block.address),
                 format_size(block.size),
