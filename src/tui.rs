@@ -746,7 +746,7 @@ fn render_alloc_table(
         };
         let protect = if block.vm_protect == RegionProtect::ReadWrite {
             "RW"
-        }else if block.vm_protect == RegionProtect::Readonly {
+        } else if block.vm_protect == RegionProtect::Readonly {
             "R"
         } else if block.vm_protect == RegionProtect::Execute {
             "X"

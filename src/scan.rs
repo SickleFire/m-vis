@@ -617,7 +617,12 @@ mod tests {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    fn make_block(address: usize, size: usize, is_free: bool, vm_protect: RegionProtect) -> HeapBlock {
+    fn make_block(
+        address: usize,
+        size: usize,
+        is_free: bool,
+        vm_protect: RegionProtect,
+    ) -> HeapBlock {
         HeapBlock {
             address,
             size,

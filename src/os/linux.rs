@@ -75,7 +75,7 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
                 protect = RegionProtect::Execute;
             } else if perms.contains('w') {
                 protect = RegionProtect::ReadWrite;
-            }else if perms.contains('r') {
+            } else if perms.contains('r') {
                 protect = RegionProtect::Readonly;
             } else {
                 protect = RegionProtect::NoAccess;
