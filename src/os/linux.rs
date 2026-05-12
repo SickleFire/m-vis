@@ -5,7 +5,8 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
     let path = format!("/proc/{}/maps", pid);
     let content = fs::read_to_string(path).expect("failed to read maps");
     let mut regions = Vec::new();
-
+    let mut protect: RegionProtect = RegionProtect::NoAccess;
+    
     for line in content.lines() {
         // each line looks like:
         // 55a3b2000000-55a3b2001000 r--p 00000000 08:01 123456  /usr/bin/cat
@@ -23,7 +24,7 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
         let start = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
         let end = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
 
-        let protect = if perms.contains('x') {
+        protect = if perms.contains('x') {
             RegionProtect::Execute
         } else if perms.contains('w') {
             RegionProtect::ReadWrite
@@ -70,14 +71,14 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
             current_start = usize::from_str_radix(parts.next().unwrap_or("0"), 16).unwrap_or(0);
         } else if in_heap && line.starts_with("Size:") {
             let perms = line.split_whitespace().nth(1).unwrap_or("");
-            let protect = if perms.contains('x') {
-                RegionProtect::Execute;
+            if perms.contains('x') {
+                protect = RegionProtect::Execute;
             } else if perms.contains('w') {
-                RegionProtect::ReadWrite;
+                protect = RegionProtect::ReadWrite;
             }else if perms.contains('r') {
-                RegionProtect::Readonly;
+                protect = RegionProtect::Readonly;
             } else {
-                RegionProtect::NoAccess;
+                protect = RegionProtect::NoAccess;
             };
             let kb: usize = line
                 .split_whitespace()
