@@ -66,7 +66,10 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
         if line.contains("[heap]") {
             in_heap = true;
             let range = line.split_whitespace().next().unwrap_or("");
-            let perms = line.split_whitespace().next().unwrap_or("");
+            let mut parts = range.split('-');
+            current_start = usize::from_str_radix(parts.next().unwrap_or("0"), 16).unwrap_or(0);
+        } else if in_heap && line.starts_with("Size:") {
+            let perms = line.split_whitespace().next().next().unwrap_or("");
             let protect = if perms.contains('x') {
                 RegionProtect::Execute;
             } else if perms.contains('w') {
@@ -76,9 +79,6 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
             } else {
                 RegionProtect::NoAccess;
             };
-            let mut parts = range.split('-');
-            current_start = usize::from_str_radix(parts.next().unwrap_or("0"), 16).unwrap_or(0);
-        } else if in_heap && line.starts_with("Size:") {
             let kb: usize = line
                 .split_whitespace()
                 .nth(1)
