@@ -175,11 +175,25 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
 
                             let flags = buf[offset + 5];
                             let is_busy = (flags & 0x01) != 0;
-
+                            let protect: RegionProtect;
+                            if mbi.Protect == PAGE_READONLY {
+                                protect = RegionProtect::Readonly;
+                            } else if mbi.Protect == PAGE_READWRITE {
+                                protect = RegionProtect::ReadWrite;
+                            }else if mbi.Protect == PAGE_EXECUTE{
+                                protect = RegionProtect::Execute;
+                            }else if mbi.Protect == PAGE_EXECUTE_READ{
+                                protect = RegionProtect::Execute;
+                            } else if mbi.Protect == PAGE_GUARD {
+                                protect = RegionProtect::Guard;
+                            } else {
+                                protect = RegionProtect::Other;
+                            }
                             blocks.push(HeapBlock {
                                 address: mbi.BaseAddress as usize + offset,
                                 size: block_size,
                                 is_free: !is_busy,
+                                vm_protect: protect,
                             });
 
                             offset += block_size;

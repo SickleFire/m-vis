@@ -10,7 +10,7 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::commands;
 use crate::render::format_size;
-use crate::types::HeapBlock;
+use crate::types::{HeapBlock, RegionProtect};
 
 enum AppEvent {
     ScanResult(commands::ScanResult),
@@ -497,7 +497,7 @@ impl App {
             Paragraph::new(proc_info).block(
                 Block::new()
                     .borders(Borders::ALL)
-                    .fg(Color::Blue)
+                    .fg(Color::Cyan)
                     .title("Process Info"),
             ),
             processlayout[0],
@@ -518,7 +518,7 @@ impl App {
         frame.render_widget(
             Paragraph::new(proc_lines)
                 .block(Block::new().borders(Borders::ALL).title("Process List"))
-                .fg(Color::Blue),
+                .fg(Color::Cyan),
             processlayout[1],
         );
 
@@ -730,10 +730,10 @@ fn render_alloc_table(
         used_blocks.len()
     )));
     lines.push(Line::raw(format!(
-        "{:<5} {:<18} {:<12} {}",
-        "#", "ADDRESS", "SIZE", "NOTE"
+        "{:<5} {:<18} {:<12} {:<8} {}",
+        "#", "ADDRESS", "SIZE", "NOTE", "PROTECTION"
     )));
-    lines.push(Line::raw("─".repeat(50)));
+    lines.push(Line::raw("─".repeat(60)));
 
     for (i, block) in page_blocks.iter().enumerate() {
         let idx = start + i + 1;
@@ -744,9 +744,22 @@ fn render_alloc_table(
         } else {
             ""
         };
+        let protect = if block.vm_protect == RegionProtect::ReadWrite {
+            "RW"
+        }else if block.vm_protect == RegionProtect::Readonly {
+            "R"
+        } else if block.vm_protect == RegionProtect::Execute {
+            "X"
+        } else if block.vm_protect == RegionProtect::Guard {
+            "G"
+        } else {
+            ""
+        };
 
         let style = if i == selected {
             Style::default().bg(Color::DarkGray).fg(Color::White)
+        } else if block.vm_protect == RegionProtect::Execute {
+            Style::default().fg(Color::Red)
         } else if block.size >= 1024 * 1024 {
             Style::default().fg(Color::Red)
         } else if block.size >= 65536 {
@@ -757,11 +770,12 @@ fn render_alloc_table(
 
         lines.push(Line::from(Span::styled(
             format!(
-                "{:<5} {:<18} {:<12} {}",
+                "{:<5} {:<18} {:<12} {:<8}, {}",
                 idx,
                 format!("0x{:x}", block.address),
                 format_size(block.size),
                 note,
+                protect,
             ),
             style,
         )));

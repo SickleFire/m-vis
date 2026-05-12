@@ -55,6 +55,7 @@ pub struct HeapBlock {
     pub address: usize,
     pub size: usize,
     pub is_free: bool,
+    pub vm_protect: RegionProtect,
 }
 
 #[derive(Clone, Debug, Serialize)]

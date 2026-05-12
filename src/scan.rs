@@ -617,11 +617,12 @@ mod tests {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    fn make_block(address: usize, size: usize, is_free: bool) -> HeapBlock {
+    fn make_block(address: usize, size: usize, is_free: bool, vm_protect: RegionProtect) -> HeapBlock {
         HeapBlock {
             address,
             size,
             is_free,
+            vm_protect,
         }
     }
 
@@ -647,24 +648,24 @@ mod tests {
 
     #[test]
     fn heap_growth_detected() {
-        let before = vec![make_block(0x1000, 4096, false)];
+        let before = vec![make_block(0x1000, 4096, false, RegionProtect::ReadWrite)];
         let after = vec![
-            make_block(0x1000, 4096, false),
-            make_block(0x2000, 2048, false),
+            make_block(0x1000, 4096, false, RegionProtect::ReadWrite),
+            make_block(0x2000, 2048, false, RegionProtect::ReadWrite),
         ];
         assert_eq!(diff_heap_size(&before, &after), 2048);
     }
 
     #[test]
     fn no_growth_when_equal() {
-        let snap = vec![make_block(0x1000, 4096, false)];
+        let snap = vec![make_block(0x1000, 4096, false, RegionProtect::ReadWrite)];
         assert_eq!(diff_heap_size(&snap, &snap), 0);
     }
 
     #[test]
     fn no_growth_when_shrinks() {
-        let before = vec![make_block(0x1000, 8192, false)];
-        let after = vec![make_block(0x1000, 4096, false)];
+        let before = vec![make_block(0x1000, 8192, false, RegionProtect::ReadWrite)];
+        let after = vec![make_block(0x1000, 4096, false, RegionProtect::ReadWrite)];
         // shrinkage returns 0, not a wrapping negative
         assert_eq!(diff_heap_size(&before, &after), 0);
     }
@@ -672,10 +673,10 @@ mod tests {
     #[test]
     fn growth_counts_free_blocks_too() {
         // diff_heap_size sums ALL blocks regardless of is_free
-        let before = vec![make_block(0x1000, 1024, false)];
+        let before = vec![make_block(0x1000, 1024, false, RegionProtect::ReadWrite)];
         let after = vec![
-            make_block(0x1000, 1024, false),
-            make_block(0x2000, 512, true),
+            make_block(0x1000, 1024, false, RegionProtect::ReadWrite),
+            make_block(0x2000, 512, true, RegionProtect::ReadWrite),
         ];
         assert_eq!(diff_heap_size(&before, &after), 512);
     }
@@ -684,10 +685,10 @@ mod tests {
 
     #[test]
     fn new_allocs_detected() {
-        let before = vec![make_block(0x1000, 64, false)];
+        let before = vec![make_block(0x1000, 64, false, RegionProtect::ReadWrite)];
         let after = vec![
-            make_block(0x1000, 64, false),
-            make_block(0x2000, 128, false), // new
+            make_block(0x1000, 64, false, RegionProtect::ReadWrite),
+            make_block(0x2000, 128, false, RegionProtect::ReadWrite),
         ];
         let results = diff_snapshots(&before, &after);
         assert_eq!(results.len(), 1);
@@ -697,8 +698,8 @@ mod tests {
     #[test]
     fn no_false_positives_on_same_snapshot() {
         let snap = vec![
-            make_block(0x1000, 64, false),
-            make_block(0x2000, 128, false),
+            make_block(0x1000, 64, false, RegionProtect::ReadWrite),
+            make_block(0x2000, 128, false, RegionProtect::ReadWrite),
         ];
         assert!(diff_snapshots(&snap, &snap).is_empty());
     }
@@ -707,7 +708,7 @@ mod tests {
     fn free_blocks_excluded_from_diff() {
         let before = vec![];
         // a new block that is free should NOT appear in leak diff
-        let after = vec![make_block(0x3000, 256, true)];
+        let after = vec![make_block(0x3000, 256, true, RegionProtect::ReadWrite)];
         assert!(diff_snapshots(&before, &after).is_empty());
     }
 
@@ -715,9 +716,9 @@ mod tests {
     fn multiple_new_allocs_all_reported() {
         let before = vec![];
         let after = vec![
-            make_block(0x1000, 64, false),
-            make_block(0x2000, 128, false),
-            make_block(0x3000, 32, false),
+            make_block(0x1000, 64, false, RegionProtect::ReadWrite),
+            make_block(0x2000, 128, false, RegionProtect::ReadWrite),
+            make_block(0x3000, 32, false, RegionProtect::ReadWrite),
         ];
         let results = diff_snapshots(&before, &after);
         assert_eq!(results.len(), 3);
