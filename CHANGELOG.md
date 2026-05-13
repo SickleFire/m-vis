@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2] - 2026-05-13
+### Added
+- (TUI) protection / permissions on heap block in heap view alloc table
+
+### Fixed
+- fixed issue #2
+
 ## [0.2.1] - 2026-05-10
 ### Added
 - leak command for tui
