@@ -72,7 +72,7 @@ pub fn resolve(ip: usize, regions: &[crate::types::Region]) -> String {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{StackFrame, StackTrace, resolve};
+    use super::{StackFrame, StackTrace};
     use nix::sys::ptrace;
     use nix::sys::wait::{WaitStatus, waitpid};
     use nix::unistd::Pid;
@@ -109,7 +109,31 @@ mod linux {
             .map(|w| w as usize)
     }
 
-    fn resolve_sym(ip: usize, regions: &[crate::types::Region]) -> String {
+    fn get_file_offset(pid: nix::unistd::Pid, ip: usize) -> u64 {
+        let path = format!("/proc/{}/maps", pid);
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return 0,
+        };
+
+        for line in content.lines() {
+            let mut parts = line.splitn(6, ' ');
+            let range   = parts.next().unwrap_or("");
+            let _perms  = parts.next();
+            let offset  = parts.next().unwrap_or("0");
+
+            let mut range_parts = range.split('-');
+            let start = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
+            let end   = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
+
+            if ip >= start && ip < end {
+                return u64::from_str_radix(offset, 16).unwrap_or(0);
+            }
+        }
+        0
+    }
+
+    fn resolve_sym(ip: usize, pid: Pid, regions: &[crate::types::Region]) -> String {
         use object::{Object, ObjectSection};
 
         let region = regions
@@ -147,8 +171,11 @@ mod linux {
             .next()
             .unwrap_or(0);
 
-        // virtual address in the file = runtime ip - map base + elf load base
-        let file_va = (ip - map_base) as u64 + elf_load_base;
+        let file_offset = get_file_offset(pid, ip);
+        let file_va     = file_offset + (ip - map_base) as u64;
+
+            eprintln!("resolve_sym: ip=0x{:x} map_base=0x{:x} elf_load_base=0x{:x} file_va=0x{:x} path={}", 
+        ip, map_base, elf_load_base, file_va, path);
 
         let endian = if obj.is_little_endian() {
             gimli::RunTimeEndian::Little
@@ -215,7 +242,7 @@ mod linux {
             }
 
             let return_address = peek(pid, rbp + 8).unwrap_or(0);
-            let symbol = resolve_sym(rip, regions);
+            let symbol = resolve_sym(rip, pid, regions);
 
             frames.push(StackFrame {
                 instruction_pointer: rip,

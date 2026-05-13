@@ -204,9 +204,3 @@ fn is_elevated() -> bool {
         elevation.TokenIsElevated != 0
     }
 }
-
-#[cfg(target_os = "linux")]
-fn is_elevated() -> bool {
-    // on linux check if root
-    unsafe { libc::geteuid() == 0 }
-}

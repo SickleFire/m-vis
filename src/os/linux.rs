@@ -61,7 +61,7 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
     let mut blocks = Vec::new();
     let mut current_start = 0usize;
     let mut in_heap = false;
-    let mut protect: RegionProtect = RegionProtect::NoAccess;
+    let mut protect: RegionProtect;
 
     for line in content.lines() {
         if line.contains("[heap]") {
