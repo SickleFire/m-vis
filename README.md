@@ -127,14 +127,9 @@ cargo test --test integration_tests -- --include-ignored
 - [ ] Heap fragmentation visualization
 - [ ] Realtime heap scanning
 - [ ] Cross Platform support for MacOS
-- [ ] Performance improvements
+- [x] Performance improvements
 - [x] Stack trace support for windows
 - [x] Json exports
-
-### Known Issues
-- [ ] Linux Symbol inconsistent
-- [ ] Heap walking is slow
-- [ ] Linux stack frames resolve to addresses, not function names yet
 
 ## License
 
