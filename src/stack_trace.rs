@@ -118,13 +118,13 @@ mod linux {
 
         for line in content.lines() {
             let mut parts = line.splitn(6, ' ');
-            let range   = parts.next().unwrap_or("");
-            let _perms  = parts.next();
-            let offset  = parts.next().unwrap_or("0");
+            let range = parts.next().unwrap_or("");
+            let _perms = parts.next();
+            let offset = parts.next().unwrap_or("0");
 
             let mut range_parts = range.split('-');
             let start = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
-            let end   = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
+            let end = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
 
             if ip >= start && ip < end {
                 return u64::from_str_radix(offset, 16).unwrap_or(0);
@@ -172,10 +172,12 @@ mod linux {
             .unwrap_or(0);
 
         let file_offset = get_file_offset(pid, ip);
-        let file_va     = file_offset + (ip - map_base) as u64;
+        let file_va = file_offset + (ip - map_base) as u64;
 
-            eprintln!("resolve_sym: ip=0x{:x} map_base=0x{:x} elf_load_base=0x{:x} file_va=0x{:x} path={}", 
-        ip, map_base, elf_load_base, file_va, path);
+        eprintln!(
+            "resolve_sym: ip=0x{:x} map_base=0x{:x} elf_load_base=0x{:x} file_va=0x{:x} path={}",
+            ip, map_base, elf_load_base, file_va, path
+        );
 
         let endian = if obj.is_little_endian() {
             gimli::RunTimeEndian::Little
