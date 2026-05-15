@@ -37,10 +37,6 @@ Early but functional. Core scanning and leak detection work on both platforms. S
 -  **Stack Tracing**: Capture call stacks to pinpoint allocation sources and trace execution paths.
 -  **Supported OS**: Windows, Linux
 
-## Known Limitations
-- ptrace leak tracing requires sudo or ptrace_scope=0
-- macOS not supported yet
-
 ## Usage
 ```powershell
 # visualize memory map
@@ -125,7 +121,8 @@ cargo test --test integration_tests -- --include-ignored
 ## Known Limitations
 
 - On Linux, stack trace function names require DWARF debug info. If the target binary is stripped or built without `-g`, `mvis leak` falls back to module offsets such as `libc.so+0x2a3f1` and prints a warning.
-
+- ptrace leak tracing requires sudo or ptrace_scope=0
+- macOS not supported yet
 ---
 
 ### Roadmap
