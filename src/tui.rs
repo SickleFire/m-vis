@@ -122,6 +122,11 @@ impl App {
         }
     }
 
+    fn clear_output(&mut self) {
+        self.messages.clear();
+        self.scroll_offset = 0;
+    }
+
     fn move_cursor_left(&mut self) {
         let cursor_moved_left = self.character_index.saturating_sub(1);
         self.character_index = self.clamp_cursor(cursor_moved_left);
@@ -299,6 +304,7 @@ impl App {
                 }
                 Err(e) => self.push_message(format!("Error: {e}")),
             },
+            ["clear"] => self.clear_output(),
             ["help"] => {
                 self.push_message("commands:".into());
                 self.push_message("  scan   <proc> -a          memory map".into());
@@ -307,6 +313,7 @@ impl App {
                 self.push_message("  leak   <proc> secs        detect leaks".into());
                 self.push_message("  leak-m <proc> secs samp   detect leaks-samples".into());
                 self.push_message("  list                      list processes".into());
+                self.push_message("  clear                     clear output history".into());
             }
             _ => {
                 self.push_message(format!("unknown command: {raw}"));
@@ -786,4 +793,39 @@ fn render_alloc_table(
         "[ prev page   ] next page   J/K select row   Tab → Metrics",
     ));
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clear_command_removes_output_and_resets_scroll() {
+        let mut app = App::new();
+        app.messages_height = 1;
+        app.push_message("old output".into());
+        app.scroll_down();
+
+        app.input = "clear".into();
+        app.character_index = app.input.chars().count();
+        app.submit_message();
+
+        assert!(app.messages.is_empty());
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn help_mentions_clear_command() {
+        let mut app = App::new();
+
+        app.input = "help".into();
+        app.character_index = app.input.chars().count();
+        app.submit_message();
+
+        assert!(
+            app.messages
+                .iter()
+                .any(|line| line.to_string().contains("clear"))
+        );
+    }
 }
