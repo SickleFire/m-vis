@@ -21,6 +21,14 @@
 
 use serde::Serialize;
 
+pub const MISSING_DEBUG_INFO_WARNING: &str =
+    "Some binaries are stripped. Recompile with -g to see function names.";
+
+#[cfg(any(target_os = "linux", test))]
+fn symbol_warning(missing_debug_info: bool) -> Option<String> {
+    missing_debug_info.then(|| MISSING_DEBUG_INFO_WARNING.to_string())
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct StackFrame {
     pub instruction_pointer: usize,
@@ -34,6 +42,7 @@ pub struct StackFrame {
 pub struct StackTrace {
     pub pid: u32,
     pub frames: Vec<StackFrame>,
+    pub symbol_warning: Option<String>,
 }
 
 // ── platform dispatch ────────────────────────────────────────────────────────
@@ -72,7 +81,7 @@ pub fn resolve(ip: usize, regions: &[crate::types::Region]) -> String {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{StackFrame, StackTrace};
+    use super::{StackFrame, StackTrace, symbol_warning};
     use nix::sys::ptrace;
     use nix::sys::wait::{WaitStatus, waitpid};
     use nix::unistd::Pid;
@@ -87,7 +96,7 @@ mod linux {
         }
 
         let regs = ptrace::getregs(nix_pid).map_err(|e| format!("getregs: {e}"))?;
-        let frames = unwind(
+        let (frames, missing_debug_info) = unwind(
             nix_pid,
             regs.rip as usize,
             regs.rsp as usize,
@@ -96,7 +105,11 @@ mod linux {
         );
 
         ptrace::detach(nix_pid, None).map_err(|e| format!("ptrace detach: {e}"))?;
-        Ok(StackTrace { pid, frames })
+        Ok(StackTrace {
+            pid,
+            frames,
+            symbol_warning: symbol_warning(missing_debug_info),
+        })
     }
 
     fn peek(pid: Pid, addr: usize) -> Option<usize> {
@@ -133,7 +146,28 @@ mod linux {
         0
     }
 
-    fn resolve_sym(ip: usize, pid: Pid, regions: &[crate::types::Region]) -> String {
+    struct ResolvedSymbol {
+        symbol: String,
+        missing_debug_info: bool,
+    }
+
+    impl ResolvedSymbol {
+        fn ok(symbol: String) -> Self {
+            Self {
+                symbol,
+                missing_debug_info: false,
+            }
+        }
+
+        fn missing_debug_info(symbol: String) -> Self {
+            Self {
+                symbol,
+                missing_debug_info: true,
+            }
+        }
+    }
+
+    fn resolve_sym(ip: usize, pid: Pid, regions: &[crate::types::Region]) -> ResolvedSymbol {
         use object::{Object, ObjectSection};
 
         let region = regions
@@ -141,21 +175,26 @@ mod linux {
             .find(|r| ip >= r.base && ip < r.base + r.size);
         let (path, map_base) = match region {
             Some(r) if !r.name.is_empty() => (r.name.clone(), r.base),
-            _ => return format!("0x{:x}", ip),
+            _ => return ResolvedSymbol::ok(format!("0x{:x}", ip)),
         };
+        let fallback = || format!("{}+0x{:x}", path, ip - map_base);
 
         let file = match std::fs::File::open(&path) {
             Ok(f) => f,
-            Err(_) => return format!("{}+0x{:x}", path, ip - map_base),
+            Err(_) => return ResolvedSymbol::ok(fallback()),
         };
         let mmap = match unsafe { memmap2::Mmap::map(&file) } {
             Ok(m) => m,
-            Err(_) => return format!("{}+0x{:x}", path, ip - map_base),
+            Err(_) => return ResolvedSymbol::ok(fallback()),
         };
         let obj = match object::File::parse(&*mmap) {
             Ok(o) => o,
-            Err(_) => return format!("{}+0x{:x}", path, ip - map_base),
+            Err(_) => return ResolvedSymbol::ok(fallback()),
         };
+
+        if obj.section_by_name(".debug_info").is_none() {
+            return ResolvedSymbol::missing_debug_info(fallback());
+        }
 
         // find the ELF's own preferred load address from the first LOAD segment
         let elf_load_base: u64 = obj
@@ -199,12 +238,12 @@ mod linux {
 
         let dwarf = match gimli::Dwarf::load(load) {
             Ok(d) => d,
-            Err(_) => return format!("{}+0x{:x}", path, ip - map_base),
+            Err(_) => return ResolvedSymbol::ok(fallback()),
         };
 
         let ctx = match addr2line::Context::from_dwarf(dwarf) {
             Ok(c) => c,
-            Err(_) => return format!("{}+0x{:x}", path, ip - map_base),
+            Err(_) => return ResolvedSymbol::ok(fallback()),
         };
 
         match ctx.find_frames(file_va).skip_all_loads() {
@@ -215,17 +254,17 @@ mod linux {
                         .as_ref()
                         .and_then(|f| f.demangle().ok())
                         .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("{}+0x{:x}", path, ip - map_base));
+                        .unwrap_or_else(&fallback);
                     let loc = frame
                         .location
                         .as_ref()
                         .map(|l| format!("  {}:{}", l.file.unwrap_or("?"), l.line.unwrap_or(0)))
                         .unwrap_or_default();
-                    return format!("{}{}", func, loc);
+                    return ResolvedSymbol::ok(format!("{}{}", func, loc));
                 }
-                format!("{}+0x{:x}", path, ip - map_base)
+                ResolvedSymbol::ok(fallback())
             }
-            Err(_) => format!("{}+0x{:x}", path, ip - map_base),
+            Err(_) => ResolvedSymbol::ok(fallback()),
         }
     }
 
@@ -235,8 +274,9 @@ mod linux {
         mut rsp: usize,
         mut rbp: usize,
         regions: &[crate::types::Region],
-    ) -> Vec<StackFrame> {
+    ) -> (Vec<StackFrame>, bool) {
         let mut frames = Vec::new();
+        let mut missing_debug_info = false;
 
         for _ in 0..128 {
             if rbp == 0 || rbp < rsp {
@@ -244,13 +284,14 @@ mod linux {
             }
 
             let return_address = peek(pid, rbp + 8).unwrap_or(0);
-            let symbol = resolve_sym(rip, pid, regions);
+            let resolved = resolve_sym(rip, pid, regions);
+            missing_debug_info |= resolved.missing_debug_info;
 
             frames.push(StackFrame {
                 instruction_pointer: rip,
                 base_pointer: rbp,
                 return_address,
-                symbol,
+                symbol: resolved.symbol,
             });
 
             if return_address == 0 {
@@ -261,7 +302,7 @@ mod linux {
             rsp = rbp + 16;
             rbp = prev_rbp;
         }
-        frames
+        (frames, missing_debug_info)
     }
 }
 
@@ -396,6 +437,7 @@ mod windows {
             Ok(StackTrace {
                 pid,
                 frames: all_frames,
+                symbol_warning: None,
             })
         }
     }
@@ -423,5 +465,19 @@ mod windows {
             }
         }
         threads
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MISSING_DEBUG_INFO_WARNING, symbol_warning};
+
+    #[test]
+    fn symbol_warning_describes_missing_linux_debug_info() {
+        assert_eq!(
+            symbol_warning(true).as_deref(),
+            Some(MISSING_DEBUG_INFO_WARNING)
+        );
+        assert!(symbol_warning(false).is_none());
     }
 }

@@ -438,6 +438,9 @@ pub fn leak_command(pid: u32, interval: u64) {
 
             if let Ok(t) = trace {
                 println!("\ncall stack at time of snapshot:");
+                if let Some(warning) = &t.symbol_warning {
+                    println!("warning: {}", warning);
+                }
                 for (i, frame) in t.frames.iter().enumerate() {
                     println!("  #{:<2} {}", i, frame.symbol);
                 }
@@ -506,6 +509,12 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
                     "call stack at time of snapshot:",
                     Style::default().fg(Color::Cyan),
                 )));
+                if let Some(warning) = &t.symbol_warning {
+                    output.push(Line::from(Span::styled(
+                        format!("warning: {}", warning),
+                        Style::default().fg(Color::Yellow),
+                    )));
+                }
                 for (i, frame) in t.frames.iter().enumerate() {
                     output.push(Line::raw(format!("  #{:<2} {}", i, frame.symbol)));
                 }

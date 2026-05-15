@@ -122,6 +122,12 @@ cargo test --test integration_tests -- --include-ignored
 
 ---
 
+## Known Limitations
+
+- On Linux, stack trace function names require DWARF debug info. If the target binary is stripped or built without `-g`, `mvis leak` falls back to module offsets such as `libc.so+0x2a3f1` and prints a warning.
+
+---
+
 ### Roadmap
 - [x] TUI frontend for heap analysis (Changed to TUI instead of GUI following our design philosophy of being lightweight)
 - [ ] Heap fragmentation visualization
