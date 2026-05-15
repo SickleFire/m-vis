@@ -6,4 +6,4 @@ pub mod stack_trace;
 pub mod tui;
 pub mod types;
 
-pub static VERSION: &str = "v0.2.2";
+pub static VERSION: &str = "v0.2.3";
