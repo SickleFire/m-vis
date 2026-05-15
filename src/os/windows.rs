@@ -1,3 +1,13 @@
+//! # Windows OS Bindings
+//!
+//! Windows-specific implementations for memory region walking and heap block enumeration.
+//! All functions in this module use Win32 APIs and are only compiled on Windows.
+//!
+//! ## APIs Used
+//! - `VirtualQueryEx` — walks the virtual address space of a target process
+//! - `GetModuleFileNameExW` — resolves image region base addresses to DLL/EXE paths
+//! - `ReadProcessMemory` — reads heap segment data directly for fast block parsing
+//! - `Toolhelp32` — enumerates heap base addresses
 use windows::Win32::Foundation::HMODULE;
 use windows::Win32::System::Memory::{
     MEM_COMMIT, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE, MEM_RESERVE, MEMORY_BASIC_INFORMATION,
@@ -8,6 +18,25 @@ use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, 
 
 use crate::types::{HeapBlock, Region, RegionKind, RegionProtect, RegionState};
 
+/// Walks the virtual address space of a process and returns all memory regions.
+///
+/// Uses `VirtualQueryEx` to enumerate every region in the target process's
+/// address space, converting each `MEMORY_BASIC_INFORMATION` entry into a
+/// platform-agnostic `Region`.
+///
+/// For image regions (loaded DLLs and EXEs), attempts to resolve the module
+/// path using `GetModuleFileNameExW`. Other region types have an empty name.
+///
+/// # Arguments
+/// * `pid` — target process ID
+///
+/// # Returns
+/// A `Vec<Region>` covering the entire address space from 0 to the top.
+/// Free regions are included so the caller can visualize gaps.
+///
+/// # Panics
+/// Panics if `OpenProcess` fails — the process may not exist or access
+/// may be denied. Use a process you have `PROCESS_QUERY_INFORMATION` rights to.
 pub fn walk_regions(pid: u32) -> Vec<Region> {
     let handle = unsafe {
         OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
@@ -77,7 +106,18 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
     }
     regions
 }
-
+/// Walks all heap blocks in a process using `ReadProcessMemory` for performance.
+///
+/// This implementation uses two phases:
+/// 1. **Toolhelp32 heap list** — enumerate heap base addresses only.
+/// 2. **`ReadProcessMemory`** — read entire heap segments at once.
+///
+/// # Arguments
+/// * `pid` — target process ID
+///
+/// # Returns
+/// A `Vec<HeapBlock>` with address, size, free status, and page protection
+/// for each parsed heap block.
 pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
@@ -102,7 +142,8 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
             Err(_) => return blocks,
         };
 
-        // get heap base addresses via Toolhelp32 (only 7 calls — fast)
+        // phase 1 — collect heap base addresses via Toolhelp32
+        // this is fast because we only enumerate heaps, not blocks
         let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPHEAPLIST, pid) {
             Ok(h) => h,
             Err(_) => {
@@ -123,8 +164,8 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
                 }
             }
         }
-
-        // for each heap base, walk all committed regions and parse block headers
+        
+        // phase 2 — for each heap base, walk committed regions and parse headers
         for heap_base in heap_bases {
             let mut addr = heap_base;
 
@@ -147,7 +188,6 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
                     && !mbi.Protect.contains(PAGE_NOACCESS)
                     && mbi.RegionSize > 0
                 {
-                    // read the entire region at once — one syscall for thousands of blocks
                     let mut buf = vec![0u8; mbi.RegionSize];
                     let mut bytes_read = 0usize;
                     let ok = ReadProcessMemory(
