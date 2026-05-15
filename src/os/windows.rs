@@ -164,7 +164,7 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
                 }
             }
         }
-        
+
         // phase 2 — for each heap base, walk committed regions and parse headers
         for heap_base in heap_bases {
             let mut addr = heap_base;
@@ -215,6 +215,8 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
 
                             let flags = buf[offset + 5];
                             let is_busy = (flags & 0x01) != 0;
+
+                            // inherit page protection from the containing region
                             let protect: RegionProtect;
                             if mbi.Protect == PAGE_READONLY {
                                 protect = RegionProtect::Readonly;
