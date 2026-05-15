@@ -1,4 +1,10 @@
 # Changelog
+## [0.2.3] - 2026-05-15
+### Added
+- (TUI) clear command
+
+### Fixed
+- fixed issue #5 Linux - (warn when debug symbols are missing)
 
 ## [0.2.2] - 2026-05-13
 ### Added
