@@ -262,3 +262,66 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
     }
     blocks
 }
+
+pub fn find_blocks_with_pointers(
+    pid: u32,
+    blocks: &[HeapBlock],
+) -> std::collections::HashSet<usize> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+
+    let mut tagged = std::collections::HashSet::new();
+
+    unsafe {
+        let proc_handle = match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
+        {
+            Ok(h) => h,
+            Err(_) => return tagged,
+        };
+
+        let live_ranges: Vec<(usize, usize)> = blocks
+            .iter()
+            .filter(|b| !b.is_free)
+            .map(|b| (b.address, b.address + b.size))
+            .collect();
+
+        for block in blocks.iter().filter(|b| !b.is_free) {
+            let mut buf = vec![0u8; block.size.min(4096)]; // cap at 4KB per block
+            let mut bytes_read = 0usize;
+
+            let ok = ReadProcessMemory(
+                proc_handle,
+                block.address as *const _,
+                buf.as_mut_ptr() as *mut _,
+                buf.len(),
+                Some(&mut bytes_read),
+            );
+
+            if ok.is_err() || bytes_read < 8 {
+                continue;
+            }
+
+            // scan every 8 bytes as a potential pointer
+            let mut offset = 0;
+            while offset + 8 <= bytes_read {
+                let value = usize::from_le_bytes(buf[offset..offset + 8].try_into().unwrap());
+
+                // check if value points into any live block
+                let points_into_heap = live_ranges
+                    .iter()
+                    .any(|(start, end)| value >= *start && value < *end);
+
+                if points_into_heap {
+                    tagged.insert(block.address);
+                    break;
+                }
+
+                offset += 8;
+            }
+        }
+
+        CloseHandle(proc_handle).ok();
+    }
+
+    tagged
+}

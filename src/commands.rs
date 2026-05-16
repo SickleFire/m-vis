@@ -13,8 +13,10 @@ pub struct ScanResult {
     pub used_bytes: usize,
     pub free_bytes: usize,
     pub frag: f64,
+    pub pointer_blocks: std::collections::HashSet<usize>,
 }
 
+use std::collections::HashSet;
 use std::sync::mpsc::Sender;
 
 pub fn leak_m(args: Vec<&str>, tx: Sender<Line<'static>>) -> Result<(), String> {
@@ -42,6 +44,14 @@ pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {
     let output = args.get(4).cloned();
     let lines = scan_with_modes_tui(&mode.to_string(), pid, json, output);
 
+    let raw = crate::os::walk_heap(pid);
+
+    #[cfg(target_os = "windows")]
+    let pointer_blocks = crate::os::find_blocks_with_pointers(pid, &raw);
+
+    #[cfg(target_os = "linux")]
+    let pointer_blocks = std::collections::HashSet::new();
+
     // get memory usage from sysinfo
     use sysinfo::System;
     let sys = System::new_all();
@@ -54,8 +64,6 @@ pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {
 
     // if heap mode, collect block data for the TUI panels
     let (blocks, used_bytes, free_bytes, frag) = if mode == "-h" {
-        let raw = crate::os::walk_heap(pid);
-
         let used_bytes: usize = raw.iter().filter(|b| !b.is_free).map(|b| b.size).sum();
         let free_bytes: usize = raw.iter().filter(|b| b.is_free).map(|b| b.size).sum();
         let largest_free = raw
@@ -84,6 +92,7 @@ pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {
         used_bytes,
         free_bytes,
         frag,
+        pointer_blocks,
     })
 }
 

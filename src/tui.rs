@@ -35,6 +35,7 @@ struct HeapSnapshot {
     largest_free: usize,
     largest_used: usize,
     blocks: Vec<HeapBlock>, // store raw blocks for the table
+    pointer_blocks: std::collections::HashSet<usize>,
 }
 
 /// App holds the state of the application
@@ -351,6 +352,7 @@ impl App {
                             largest_used: used.iter().map(|b| b.size).max().unwrap_or(0),
                             largest_free: free.iter().map(|b| b.size).max().unwrap_or(0),
                             blocks: result.blocks,
+                            pointer_blocks: result.pointer_blocks,
                         });
 
                         if self.heap_history.len() > 4 {
@@ -737,8 +739,8 @@ fn render_alloc_table(
         used_blocks.len()
     )));
     lines.push(Line::raw(format!(
-        "{:<5} {:<18} {:<12} {:<8} {}",
-        "#", "ADDRESS", "SIZE", "NOTE", "PROTECTION"
+        "{:<5} {:<18} {:<12} {:<8} {:<6} {}",
+        "#", "ADDRESS", "SIZE", "NOTE", "PROTECT", "TAG"
     )));
     lines.push(Line::raw("─".repeat(60)));
 
@@ -763,6 +765,12 @@ fn render_alloc_table(
             ""
         };
 
+        let tag = if snap.pointer_blocks.contains(&block.address) {
+            "[PTR]"
+        } else {
+            ""
+        };
+
         let style = if i == selected {
             Style::default().bg(Color::DarkGray).fg(Color::White)
         } else if block.vm_protect == RegionProtect::Execute {
@@ -777,12 +785,13 @@ fn render_alloc_table(
 
         lines.push(Line::from(Span::styled(
             format!(
-                "{:<5} {:<18} {:<12} {:<8} {}",
+                "{:<5} {:<18} {:<12} {:<8} {:<6} {}",
                 idx,
                 format!("0x{:x}", block.address),
                 format_size(block.size),
                 note,
                 protect,
+                tag,
             ),
             style,
         )));
