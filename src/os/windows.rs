@@ -317,6 +317,12 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
     blocks
 }
 
+/// Scans live heap blocks for pointers that reference other live heap blocks.
+///
+///
+/// ## Returns two sets:
+/// - **tagged** — blocks that *contain* a pointer to another heap block
+/// - **referenced** — blocks that are *pointed to* by another heap block
 pub fn find_blocks_with_pointers(
     pid: u32,
     blocks: &[HeapBlock],
