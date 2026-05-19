@@ -37,7 +37,6 @@
 - CI/CD pipeline with GitHub Actions
 - Pre-built binary releases for Windows and Linux
 
-
 ### Fixed
 - Replaced Heap Walking to ReadProcessMemory
 - Process lookup now uses stable system processes
@@ -45,3 +44,8 @@
 
 ### Known Issues
 - Linux symbol resolution inconsistent
+
+## [0.1.0]
+- Initial CLI release
+- Windows and Linux memory scanning
+- Leak detection
