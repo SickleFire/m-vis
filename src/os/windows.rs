@@ -664,3 +664,110 @@ fn check_integrity(disk: &[u8], mem: &[u8]) -> ModuleStatus {
         ModuleStatus::Ok
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper to make a vec of given length filled with a value
+    fn make_page(value: u8, len: usize) -> Vec<u8> {
+        vec![value; len]
+    }
+
+    // --- Edge cases: empty inputs ---
+
+    #[test]
+    fn test_empty_disk_returns_unreadable() {
+        assert_eq!(check_integrity(&[], &[0u8; 0x1000]), ModuleStatus::Unreadable);
+    }
+
+    #[test]
+    fn test_empty_mem_returns_unreadable() {
+        assert_eq!(check_integrity(&[0u8; 0x1000], &[]), ModuleStatus::Unreadable);
+    }
+
+    #[test]
+    fn test_both_empty_returns_unreadable() {
+        assert_eq!(check_integrity(&[], &[]), ModuleStatus::Unreadable);
+    }
+
+    // --- Clean: identical content ---
+
+    #[test]
+    fn test_identical_single_page_returns_ok() {
+        let data = make_page(0xAB, 0x1000);
+        assert_eq!(check_integrity(&data, &data), ModuleStatus::Ok);
+    }
+
+    #[test]
+    fn test_identical_multi_page_returns_ok() {
+        let data = make_page(0xFF, 0x4000); // 4 pages
+        assert_eq!(check_integrity(&data, &data), ModuleStatus::Ok);
+    }
+
+    #[test]
+    fn test_identical_sub_page_returns_ok() {
+        // Less than one full page — only partial page is compared
+        let data = vec![0x01u8; 0x800];
+        assert_eq!(check_integrity(&data, &data), ModuleStatus::Ok);
+    }
+
+    // --- Tampered: differing content ---
+
+    #[test]
+    fn test_single_byte_diff_returns_tampered() {
+        let disk = make_page(0x00, 0x1000);
+        let mut mem = disk.clone();
+        mem[42] = 0xFF; // flip one byte
+        assert_eq!(check_integrity(&disk, &mem), ModuleStatus::Tampered);
+    }
+
+    #[test]
+    fn test_diff_in_second_page_returns_tampered() {
+        let disk = make_page(0x00, 0x3000);
+        let mut mem = disk.clone();
+        mem[0x1001] = 0xDE; // second page
+        assert_eq!(check_integrity(&disk, &mem), ModuleStatus::Tampered);
+    }
+
+    #[test]
+    fn test_all_pages_differ_returns_tampered() {
+        let disk = make_page(0x00, 0x3000);
+        let mem = make_page(0xFF, 0x3000);
+        assert_eq!(check_integrity(&disk, &mem), ModuleStatus::Tampered);
+    }
+
+    // --- Length mismatch: compare_len = min(disk, mem) ---
+
+    #[test]
+    fn test_mem_longer_than_disk_ok_within_overlap() {
+        // disk is 1 page, mem is 2 pages — only 1 page is compared
+        let disk = make_page(0xAA, 0x1000);
+        let mem = make_page(0xAA, 0x2000); // second page is never checked
+        assert_eq!(check_integrity(&disk, &mem), ModuleStatus::Ok);
+    }
+
+    #[test]
+    fn test_disk_longer_than_mem_ok_within_overlap() {
+        let disk = make_page(0xBB, 0x2000);
+        let mem = make_page(0xBB, 0x1000);
+        assert_eq!(check_integrity(&disk, &mem), ModuleStatus::Ok);
+    }
+
+    #[test]
+    fn test_mem_longer_diff_in_extra_region_still_ok() {
+        // Difference only in mem's extra bytes beyond disk — not compared
+        let disk = make_page(0x00, 0x1000);
+        let mut mem = make_page(0x00, 0x2000);
+        mem[0x1500] = 0xFF; // beyond disk.len(), never reached
+        assert_eq!(check_integrity(&disk, &mem), ModuleStatus::Ok);
+    }
+
+    #[test]
+    fn test_length_mismatch_diff_in_overlap_returns_tampered() {
+        let disk = make_page(0x00, 0x2000);
+        let mut mem = make_page(0x00, 0x3000);
+        mem[0x0010] = 0x01; // within overlap — caught
+        assert_eq!(check_integrity(&disk, &mem), ModuleStatus::Tampered);
+    }
+}
