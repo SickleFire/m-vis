@@ -10,6 +10,7 @@
 //! mvis list [filter]
 //! ```
 //!
+use mvis::commands::process_is_visible;
 use mvis::scan::{leak_command, leak_m_command, scan_with_modes};
 use mvis::tui::tui_main;
 use std::env;
@@ -64,11 +65,7 @@ fn run() -> Result<(), String> {
             let mut processes: Vec<_> = sys
                 .processes()
                 .values()
-                .filter(|p| {
-                    filter.as_ref().map_or(true, |f| {
-                        p.name().to_string_lossy().to_lowercase().contains(f)
-                    })
-                })
+                .filter(|p| process_is_visible(p, filter.as_deref()))
                 .collect();
             processes.sort_by(|a, b| b.memory().cmp(&a.memory()));
 

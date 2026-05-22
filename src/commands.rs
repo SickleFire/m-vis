@@ -19,6 +19,28 @@ pub struct ScanResult {
 
 use std::sync::mpsc::Sender;
 
+pub fn is_worker_thread_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name == "rayon-worker" || name.starts_with("rayon-worker-")
+}
+
+pub fn process_name_is_visible(name: &str, filter: Option<&str>) -> bool {
+    if is_worker_thread_name(name) {
+        return false;
+    }
+
+    filter.map_or(true, |f| name.to_ascii_lowercase().contains(f))
+}
+
+pub fn process_is_visible(process: &sysinfo::Process, filter: Option<&str>) -> bool {
+    if process.thread_kind().is_some() {
+        return false;
+    }
+
+    let name = process.name().to_string_lossy();
+    process_name_is_visible(name.as_ref(), filter)
+}
+
 pub fn leak_m(args: Vec<&str>, tx: Sender<Line<'static>>) -> Result<(), String> {
     let queryp = args[1];
     let pid = find_pid(queryp.to_string())?;
@@ -118,11 +140,7 @@ pub fn list_processes(args: Vec<&str>) -> Result<Vec<String>, String> {
     let mut processes: Vec<_> = sys
         .processes()
         .values()
-        .filter(|p| {
-            filter.as_ref().map_or(true, |f| {
-                p.name().to_string_lossy().to_lowercase().contains(f)
-            })
-        })
+        .filter(|p| process_is_visible(p, filter.as_deref()))
         .collect();
     processes.sort_by(|a, b| b.memory().cmp(&a.memory()));
 
@@ -137,6 +155,25 @@ pub fn list_processes(args: Vec<&str>) -> Result<Vec<String>, String> {
         ));
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_worker_thread_name, process_name_is_visible};
+
+    #[test]
+    fn detects_rayon_worker_threads() {
+        assert!(is_worker_thread_name("rayon-worker"));
+        assert!(is_worker_thread_name("rayon-worker-3"));
+        assert!(!is_worker_thread_name("worker-service"));
+    }
+
+    #[test]
+    fn hides_worker_threads_before_filtering() {
+        assert!(!process_name_is_visible("rayon-worker", None));
+        assert!(!process_name_is_visible("rayon-worker", Some("rayon")));
+        assert!(process_name_is_visible("cargo", Some("car")));
+    }
 }
 
 fn get_heap_blocks(pid: u32, granular: bool) -> Vec<HeapBlock> {
