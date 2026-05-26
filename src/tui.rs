@@ -314,6 +314,14 @@ impl App {
                 }
                 Err(e) => self.push_message(format!("Error: {e}")),
             },
+            ["modules", _proc, "-t"] | ["modules", _proc] => match commands::modules(parts) {
+                Ok(results) => {
+                    for result in results {
+                        self.push_message(result);
+                    }
+                }
+                Err(e) => self.push_message(format!("Error: {e}")),
+            },
             ["clear"] => self.clear_output(),
             ["help"] => {
                 self.push_message("commands:".into());

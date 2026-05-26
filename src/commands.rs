@@ -122,6 +122,22 @@ pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {
     })
 }
 
+pub fn modules(args: Vec<&str>) -> Result<Vec<String>, String> {
+    let queryp = args[1];
+    let pid = find_pid(queryp.to_string()).map_err(|e| e.to_string())?;
+    let mut flag = "".to_string();
+    if args.len() == 3 {
+        flag = args[2].to_string();
+    }
+    let results = crate::os::list_modules(pid, flag);
+    let output: Vec<String> = results
+        .into_iter()
+        .map(|result| format!("{}: {:?}", result.name, result.status))
+        .collect();
+
+    Ok(output)
+}
+
 fn find_pid(name: String) -> Result<u32, String> {
     use sysinfo::System;
     let sys = System::new_all();
