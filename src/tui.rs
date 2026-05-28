@@ -831,6 +831,48 @@ fn render_alloc_table(
 mod tests {
     use super::*;
 
+    // ── helpers ─────────────────────────────────────────────────────────────
+
+    fn make_app() -> App {
+        App::new()
+    }
+
+    fn make_app_with_heap() -> App {
+        let mut app = make_app();
+        app.heap_history.push(HeapSnapshot {
+            fragmentation: 30.0,
+            used_blocks: 10,
+            free_blocks: 5,
+            used_bytes: 1024,
+            free_bytes: 512,
+            largest_free: 256,
+            largest_used: 512,
+            blocks: vec![
+                HeapBlock {
+                    address: 0x1000,
+                    size: 512,
+                    is_free: false,
+                    vm_protect: RegionProtect::ReadWrite,
+                },
+                HeapBlock {
+                    address: 0x2000,
+                    size: 256,
+                    is_free: false,
+                    vm_protect: RegionProtect::ReadWrite,
+                },
+                HeapBlock {
+                    address: 0x3000,
+                    size: 128,
+                    is_free: true,
+                    vm_protect: RegionProtect::ReadWrite,
+                },
+            ],
+            pointer_blocks: std::collections::HashSet::new(),
+            referenced_blocks: std::collections::HashSet::new(),
+        });
+        app
+    }
+
     #[test]
     fn clear_command_removes_output_and_resets_scroll() {
         let mut app = App::new();
@@ -859,5 +901,113 @@ mod tests {
                 .iter()
                 .any(|line| line.to_string().contains("clear"))
         );
+    }
+
+    // ── input / cursor ───────────────────────────────────────────────────────
+
+    #[test]
+    fn enter_char_advances_cursor() {
+        let mut app = make_app();
+        app.enter_char('h');
+        app.enter_char('i');
+        assert_eq!(app.input, "hi");
+        assert_eq!(app.character_index, 2);
+    }
+
+    #[test]
+    fn delete_char_removes_char_before_cursor() {
+        let mut app = make_app();
+        app.enter_char('h');
+        app.enter_char('i');
+        app.delete_char();
+        assert_eq!(app.input, "h");
+        assert_eq!(app.character_index, 1);
+    }
+
+    #[test]
+    fn delete_char_at_start_is_noop() {
+        let mut app = make_app();
+        app.enter_char('x');
+        app.move_cursor_left();
+        app.delete_char();
+        assert_eq!(app.input, "x");
+        assert_eq!(app.character_index, 0);
+    }
+
+    #[test]
+    fn move_cursor_left_clamps_at_zero() {
+        let mut app = make_app();
+        app.move_cursor_left();
+        assert_eq!(app.character_index, 0);
+    }
+
+    #[test]
+    fn move_cursor_right_clamps_at_end() {
+        let mut app = make_app();
+        app.enter_char('a');
+        app.move_cursor_right();
+        assert_eq!(app.character_index, 1);
+    }
+
+    #[test]
+    fn submit_message_clears_input_and_resets_cursor() {
+        let mut app = make_app();
+        app.enter_char('h');
+        app.enter_char('i');
+        app.submit_message();
+        assert!(app.input.is_empty());
+        assert_eq!(app.character_index, 0);
+    }
+
+    #[test]
+    fn submit_empty_input_does_nothing() {
+        let mut app = make_app();
+        let initial_len = app.messages.len();
+        app.submit_message();
+        assert_eq!(app.messages.len(), initial_len);
+    }
+
+    // ── pagination ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn prev_page_does_not_underflow() {
+        let mut app = make_app_with_heap();
+        app.alloc_table_page = 0;
+        app.prev_page();
+        assert_eq!(app.alloc_table_page, 0);
+    }
+
+    #[test]
+    fn next_page_clamps_at_last_page() {
+        let mut app = make_app_with_heap();
+        app.alloc_table_page_size = 10;
+        app.next_page();
+        assert_eq!(app.alloc_table_page, 0);
+    }
+
+    #[test]
+    fn next_page_advances_when_more_blocks_exist() {
+        let mut app = make_app_with_heap();
+        app.alloc_table_page_size = 1;
+        app.next_page();
+        assert_eq!(app.alloc_table_page, 1);
+    }
+
+    #[test]
+    fn prev_page_after_next_returns_to_zero() {
+        let mut app = make_app_with_heap();
+        app.alloc_table_page_size = 1;
+        app.next_page();
+        app.prev_page();
+        assert_eq!(app.alloc_table_page, 0);
+    }
+
+    #[test]
+    fn page_change_resets_selected_row() {
+        let mut app = make_app_with_heap();
+        app.alloc_table_page_size = 1;
+        app.alloc_table_selected = 5;
+        app.next_page();
+        assert_eq!(app.alloc_table_selected, 0);
     }
 }
