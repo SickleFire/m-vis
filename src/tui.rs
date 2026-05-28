@@ -979,8 +979,9 @@ mod tests {
     #[test]
     fn scroll_down_increments_offset() {
         let mut app = make_app();
+        let before = app.scroll_offset;
         app.scroll_down();
-        assert_eq!(app.scroll_offset, 1);
+        assert_eq!(app.scroll_offset, before + 1);
     }
 
     #[test]
