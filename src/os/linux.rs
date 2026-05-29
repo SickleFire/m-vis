@@ -114,8 +114,6 @@ pub fn list_modules(pid: u32, flag: String) -> Vec<ModuleInfo> {
     };
 
     for line in content.lines() {
-        // format: address perms offset dev inode pathname
-        // 7f1234000-7f1235000 r-xp 00000000 fd:01 123456 /usr/lib/libc.so.6
         let parts: Vec<&str> = line.splitn(6, ' ').collect();
         if parts.len() < 6 {
             continue;
@@ -125,12 +123,10 @@ pub fn list_modules(pid: u32, flag: String) -> Vec<ModuleInfo> {
         let perms = parts[1];
         let path = parts[5].trim();
 
-        // skip anonymous, pseudo, and non-file regions
         if path.is_empty() || path.starts_with('[') || path.starts_with("anon") {
             continue;
         }
 
-        // parse address range
         let addrs: Vec<&str> = addr_range.split('-').collect();
         if addrs.len() != 2 {
             continue;
@@ -163,14 +159,12 @@ pub fn list_modules(pid: u32, flag: String) -> Vec<ModuleInfo> {
         }
     }
 
-    // integrity check each module
     for (path, module) in modules.iter_mut() {
         if !std::path::Path::new(path).exists() {
             module.status = ModuleStatus::Injected;
             continue;
         }
 
-        // read .text section from disk
         let disk_bytes = match read_text_section_from_disk(path) {
             Some(b) => b,
             None => {
@@ -179,7 +173,6 @@ pub fn list_modules(pid: u32, flag: String) -> Vec<ModuleInfo> {
             }
         };
 
-        // read same range from memory via /proc/<pid>/mem
         let mem_bytes =
             match read_text_section_from_memory_linux(pid, module.base, disk_bytes.len()) {
                 Some(b) => b,
@@ -205,16 +198,12 @@ pub fn list_modules(pid: u32, flag: String) -> Vec<ModuleInfo> {
     result
 }
 
-// on Linux, read process memory via /proc/<pid>/mem
 fn read_text_section_from_memory_linux(pid: u32, base: usize, len: usize) -> Option<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
 
     let mem_path = format!("/proc/{}/mem", pid);
     let mut file = std::fs::File::open(&mem_path).ok()?;
 
-    // find the .text section offset in the loaded ELF
-    // same logic as disk — find the .text section's virtual address
-    // then seek to base + (text_vaddr - load_vaddr)
     file.seek(SeekFrom::Start(base as u64)).ok()?;
 
     let mut buf = vec![0u8; len];
@@ -222,7 +211,6 @@ fn read_text_section_from_memory_linux(pid: u32, base: usize, len: usize) -> Opt
     Some(buf)
 }
 
-// Linux ELF .text section reader — same interface as Windows version
 fn read_text_section_from_disk(path: &str) -> Option<Vec<u8>> {
     use object::{Object, ObjectSection};
 
