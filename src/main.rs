@@ -84,58 +84,57 @@ fn run() -> Result<(), String> {
             let name = get_arg(&args, 2, "process name")?;
             let pid = find_pid(name.to_string())?;
             let flag = get_arg(&args, 3, "flag (-t)")?;
-            
-                let modules = mvis::os::list_modules(pid, flag.to_string());
-                println!(
-                    "{:<18} {:<10} {:<10} {}",
-                    "ADDRESS", "SIZE", "STATUS", "NAME"
-                );
-                println!("{}", "-".repeat(70));
 
-                for m in &modules {
-                    let status = match m.status {
-                        mvis::types::ModuleStatus::Ok => "\x1b[32mOK\x1b[0m",
-                        mvis::types::ModuleStatus::Tampered => "\x1b[31mTAMPERED\x1b[0m",
-                        mvis::types::ModuleStatus::Injected => "\x1b[33mINJECTED\x1b[0m",
-                        mvis::types::ModuleStatus::Modified => "\x1b[34mMODIFIED\x1b[0m",
-                        mvis::types::ModuleStatus::Unreadable => "\x1b[90mUNREADABLE\x1b[0m",
-                    };
+            let modules = mvis::os::list_modules(pid, flag.to_string());
+            println!(
+                "{:<18} {:<10} {:<10} {}",
+                "ADDRESS", "SIZE", "STATUS", "NAME"
+            );
+            println!("{}", "-".repeat(70));
+
+            for m in &modules {
+                let status = match m.status {
+                    mvis::types::ModuleStatus::Ok => "\x1b[32mOK\x1b[0m",
+                    mvis::types::ModuleStatus::Tampered => "\x1b[31mTAMPERED\x1b[0m",
+                    mvis::types::ModuleStatus::Injected => "\x1b[33mINJECTED\x1b[0m",
+                    mvis::types::ModuleStatus::Modified => "\x1b[34mMODIFIED\x1b[0m",
+                    mvis::types::ModuleStatus::Unreadable => "\x1b[90mUNREADABLE\x1b[0m",
+                };
+                println!(
+                    "0x{:<16x} {:<10} {:<10} {}",
+                    m.base,
+                    format!("{:.1}MB", m.size as f64 / 1024.0 / 1024.0),
+                    status,
+                    m.name,
+                );
+            }
+
+            let tampered: Vec<_> = modules
+                .iter()
+                .filter(|m| matches!(m.status, mvis::types::ModuleStatus::Tampered))
+                .collect();
+            let injected: Vec<_> = modules
+                .iter()
+                .filter(|m| matches!(m.status, mvis::types::ModuleStatus::Injected))
+                .collect();
+
+            println!();
+            if tampered.is_empty() && injected.is_empty() {
+                println!("\x1b[32mall modules appear clean\x1b[0m");
+            } else {
+                if !tampered.is_empty() {
                     println!(
-                        "0x{:<16x} {:<10} {:<10} {}",
-                        m.base,
-                        format!("{:.1}MB", m.size as f64 / 1024.0 / 1024.0),
-                        status,
-                        m.name,
+                        "\x1b[31m{} tampered module(s) detected\x1b[0m",
+                        tampered.len()
                     );
                 }
-
-                let tampered: Vec<_> = modules
-                    .iter()
-                    .filter(|m| matches!(m.status, mvis::types::ModuleStatus::Tampered))
-                    .collect();
-                let injected: Vec<_> = modules
-                    .iter()
-                    .filter(|m| matches!(m.status, mvis::types::ModuleStatus::Injected))
-                    .collect();
-
-                println!();
-                if tampered.is_empty() && injected.is_empty() {
-                    println!("\x1b[32mall modules appear clean\x1b[0m");
-                } else {
-                    if !tampered.is_empty() {
-                        println!(
-                            "\x1b[31m{} tampered module(s) detected\x1b[0m",
-                            tampered.len()
-                        );
-                    }
-                    if !injected.is_empty() {
-                        println!(
-                            "\x1b[33m{} injected module(s) detected\x1b[0m",
-                            injected.len()
-                        );
-                    }
+                if !injected.is_empty() {
+                    println!(
+                        "\x1b[33m{} injected module(s) detected\x1b[0m",
+                        injected.len()
+                    );
                 }
-            
+            }
         }
         "help" | "--help" | "-h" => {
             println!("commands");

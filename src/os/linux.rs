@@ -1,4 +1,6 @@
-use crate::types::{HeapBlock, Region, RegionKind, RegionProtect, RegionState, ModuleInfo, ModuleStatus};
+use crate::types::{
+    HeapBlock, ModuleInfo, ModuleStatus, Region, RegionKind, RegionProtect, RegionState,
+};
 use std::fs;
 
 pub fn walk_regions(pid: u32) -> Vec<Region> {
@@ -100,7 +102,7 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
 
 pub fn list_modules(pid: u32, flag: String) -> Vec<ModuleInfo> {
     use std::collections::HashMap;
-    
+
     let tampered = flag == "-t";
     let mut modules: HashMap<String, ModuleInfo> = HashMap::new();
 
@@ -115,23 +117,24 @@ pub fn list_modules(pid: u32, flag: String) -> Vec<ModuleInfo> {
         // format: address perms offset dev inode pathname
         // 7f1234000-7f1235000 r-xp 00000000 fd:01 123456 /usr/lib/libc.so.6
         let parts: Vec<&str> = line.splitn(6, ' ').collect();
-        if parts.len() < 6 { continue; }
+        if parts.len() < 6 {
+            continue;
+        }
 
         let addr_range = parts[0];
-        let perms      = parts[1];
-        let path       = parts[5].trim();
+        let perms = parts[1];
+        let path = parts[5].trim();
 
         // skip anonymous, pseudo, and non-file regions
-        if path.is_empty()
-            || path.starts_with('[')
-            || path.starts_with("anon")
-        {
+        if path.is_empty() || path.starts_with('[') || path.starts_with("anon") {
             continue;
         }
 
         // parse address range
         let addrs: Vec<&str> = addr_range.split('-').collect();
-        if addrs.len() != 2 { continue; }
+        if addrs.len() != 2 {
+            continue;
+        }
         let base = match usize::from_str_radix(addrs[0], 16) {
             Ok(a) => a,
             Err(_) => continue,
@@ -177,19 +180,21 @@ pub fn list_modules(pid: u32, flag: String) -> Vec<ModuleInfo> {
         };
 
         // read same range from memory via /proc/<pid>/mem
-        let mem_bytes = match read_text_section_from_memory_linux(pid, module.base, disk_bytes.len()) {
-            Some(b) => b,
-            None => {
-                module.status = ModuleStatus::Unreadable;
-                continue;
-            }
-        };
+        let mem_bytes =
+            match read_text_section_from_memory_linux(pid, module.base, disk_bytes.len()) {
+                Some(b) => b,
+                None => {
+                    module.status = ModuleStatus::Unreadable;
+                    continue;
+                }
+            };
 
         module.status = check_integrity(&disk_bytes, &mem_bytes);
     }
 
     let mut result: Vec<ModuleInfo> = if tampered {
-        modules.into_values()
+        modules
+            .into_values()
             .filter(|m| m.status != ModuleStatus::Ok)
             .collect()
     } else {
@@ -234,10 +239,7 @@ fn check_integrity(disk: &[u8], mem: &[u8]) -> ModuleStatus {
         return ModuleStatus::Tampered;
     }
 
-    let diffs = disk.iter()
-        .zip(mem.iter())
-        .filter(|(a, b)| a != b)
-        .count();
+    let diffs = disk.iter().zip(mem.iter()).filter(|(a, b)| a != b).count();
 
     if diffs == 0 {
         ModuleStatus::Ok
