@@ -84,9 +84,7 @@ fn run() -> Result<(), String> {
             let name = get_arg(&args, 2, "process name")?;
             let pid = find_pid(name.to_string())?;
             let flag = get_arg(&args, 3, "flag (-t)")?;
-
-            #[cfg(target_os = "windows")]
-            {
+            
                 let modules = mvis::os::list_modules(pid, flag.to_string());
                 println!(
                     "{:<18} {:<10} {:<10} {}",
@@ -96,10 +94,11 @@ fn run() -> Result<(), String> {
 
                 for m in &modules {
                     let status = match m.status {
-                        mvis::os::ModuleStatus::Ok => "\x1b[32mOK\x1b[0m",
-                        mvis::os::ModuleStatus::Tampered => "\x1b[31mTAMPERED\x1b[0m",
-                        mvis::os::ModuleStatus::Injected => "\x1b[33mINJECTED\x1b[0m",
-                        mvis::os::ModuleStatus::Unreadable => "\x1b[90mUNREADABLE\x1b[0m",
+                        mvis::types::ModuleStatus::Ok => "\x1b[32mOK\x1b[0m",
+                        mvis::types::ModuleStatus::Tampered => "\x1b[31mTAMPERED\x1b[0m",
+                        mvis::types::ModuleStatus::Injected => "\x1b[33mINJECTED\x1b[0m",
+                        mvis::types::ModuleStatus::Modified => "\x1b[34mMODIFIED\x1b[0m",
+                        mvis::types::ModuleStatus::Unreadable => "\x1b[90mUNREADABLE\x1b[0m",
                     };
                     println!(
                         "0x{:<16x} {:<10} {:<10} {}",
@@ -112,11 +111,11 @@ fn run() -> Result<(), String> {
 
                 let tampered: Vec<_> = modules
                     .iter()
-                    .filter(|m| matches!(m.status, mvis::os::ModuleStatus::Tampered))
+                    .filter(|m| matches!(m.status, mvis::types::ModuleStatus::Tampered))
                     .collect();
                 let injected: Vec<_> = modules
                     .iter()
-                    .filter(|m| matches!(m.status, mvis::os::ModuleStatus::Injected))
+                    .filter(|m| matches!(m.status, mvis::types::ModuleStatus::Injected))
                     .collect();
 
                 println!();
@@ -136,12 +135,7 @@ fn run() -> Result<(), String> {
                         );
                     }
                 }
-            }
-
-            #[cfg(target_os = "linux")]
-            {
-                return Err("modules command is Windows only for now".to_string());
-            }
+            
         }
         "help" | "--help" | "-h" => {
             println!("commands");

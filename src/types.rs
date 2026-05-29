@@ -64,3 +64,21 @@ pub struct HeapStats {
     pub size: usize,
     pub rss: usize, // resident set size — actually in RAM
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModuleStatus {
+    Ok,
+    Tampered,
+    Injected,
+    Unreadable,
+    Modified,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModuleInfo {
+    pub base: usize,
+    pub size: usize,
+    pub name: String,
+    pub path: String,
+    pub status: ModuleStatus,
+}
