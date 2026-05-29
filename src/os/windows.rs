@@ -17,24 +17,9 @@ use windows::Win32::System::Memory::{
 use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 
-use crate::types::{HeapBlock, Region, RegionKind, RegionProtect, RegionState};
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ModuleStatus {
-    Ok,
-    Tampered,
-    Injected,
-    Unreadable,
-}
-
-#[derive(Debug, Clone)]
-pub struct ModuleInfo {
-    pub base: usize,
-    pub size: usize,
-    pub name: String,
-    pub path: String,
-    pub status: ModuleStatus,
-}
+use crate::types::{
+    HeapBlock, ModuleInfo, ModuleStatus, Region, RegionKind, RegionProtect, RegionState,
+};
 
 /// Walks the virtual address space of a process and returns all memory regions.
 ///
