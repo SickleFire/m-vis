@@ -1,4 +1,16 @@
 # Changelog
+## [0.3.0] - 2026-05-31
+### Added
+- (TUI) modules command
+- (TUI) watch command
+
+### Fixed
+- (LINUX) hide worker threads from process list
+
+### Known Issues
+- [PTR] and [REF] tags can't account for memory rotations.
+- no walk_heap_granular equivalent for linux
+
 ## [0.2.4] - 2026-05-21
 ### Added
 - (CLI) modules command
