@@ -16,7 +16,7 @@ enum AppEvent {
     ScanResult(commands::ScanResult),
     ScanError(String),
     Output(Line<'static>),
-    RunCommand(String)
+    RunCommand(String),
 }
 
 pub fn tui_main() -> Result<()> {
@@ -263,22 +263,29 @@ impl App {
                 if let Some(stop) = &self.watch_stop {
                     stop.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
-            
+
                 let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 self.watch_stop = Some(stop.clone());
-            
-                self.push_message(format!("watching: {} (100 iterations, Ctrl+W to stop)", cmd));
-            
+
+                self.push_message(format!(
+                    "watching: {} (100 iterations, Ctrl+W to stop)",
+                    cmd
+                ));
+
                 std::thread::spawn(move || {
                     let mut i = 0u64;
                     loop {
                         if stop.load(std::sync::atomic::Ordering::Relaxed) {
-                            tx.send(AppEvent::Output(Line::raw(format!("watch stopped at iteration {}", i)))).ok();
+                            tx.send(AppEvent::Output(Line::raw(format!(
+                                "watch stopped at iteration {}",
+                                i
+                            ))))
+                            .ok();
                             break;
                         }
-                    
+
                         tx.send(AppEvent::RunCommand(cmd.clone())).ok();
-                    
+
                         std::thread::sleep(std::time::Duration::from_secs(1));
                         i += 1;
                     }
