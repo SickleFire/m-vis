@@ -12,7 +12,7 @@ pub use linux::*;
 use crate::types::{HeapBlock, ModuleInfo, Region};
 
 pub trait MemoryProvider {
-    fn walk_regions(pid: u32) -> Vec<Region>;
-    fn walk_heap(pid: u32) -> Vec<HeapBlock>;
-    fn list_modules(pid: u32, flag: String) -> Vec<ModuleInfo>;
+    fn walk_regions(&self, pid: u32) -> Vec<Region>;
+    fn walk_heap(&self, pid: u32) -> Vec<HeapBlock>;
+    fn list_modules(&self, pid: u32, flag: String) -> Vec<ModuleInfo>;
 }

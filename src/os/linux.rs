@@ -1,8 +1,25 @@
+use crate::os::MemoryProvider;
 use crate::types::{
     HeapBlock, ModuleInfo, ModuleStatus, Region, RegionKind, RegionProtect, RegionState,
 };
 use std::fs;
 use std::io;
+
+pub struct LinuxMemory;
+
+impl MemoryProvider for LinuxMemory {
+    fn walk_regions(&self, pid: u32) -> Vec<Region> {
+        walk_regions(pid)
+    }
+
+    fn walk_heap(&self, pid: u32) -> Vec<HeapBlock> {
+        walk_heap(pid)
+    }
+
+    fn list_modules(&self, pid: u32, flag: String) -> Vec<ModuleInfo> {
+        list_modules(pid, flag)
+    }
+}
 
 pub fn walk_regions(pid: u32) -> Vec<Region> {
     let path = format!("/proc/{}/maps", pid);

@@ -17,9 +17,26 @@ use windows::Win32::System::Memory::{
 use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 
+use crate::os::MemoryProvider;
 use crate::types::{
     HeapBlock, ModuleInfo, ModuleStatus, Region, RegionKind, RegionProtect, RegionState,
 };
+
+pub struct WindowsMemory;
+
+impl MemoryProvider for WindowsMemory {
+    fn walk_regions(&self, pid: u32) -> Vec<Region> {
+        walk_regions(pid)
+    }
+
+    fn walk_heap(&self, pid: u32) -> Vec<HeapBlock> {
+        walk_heap(pid)
+    }
+
+    fn list_modules(&self, pid: u32, flag: String) -> Vec<ModuleInfo> {
+        list_modules(pid, flag)
+    }
+}
 
 /// Walks the virtual address space of a process and returns all memory regions.
 ///
