@@ -126,13 +126,7 @@ cargo test --test integration_tests -- --include-ignored
 ---
 
 ### Roadmap
-- [x] TUI frontend for heap analysis (Changed to TUI instead of GUI following our design philosophy of being lightweight)
-- [ ] Heap fragmentation visualization
-- [ ] Realtime heap scanning
-- [ ] Cross Platform support for MacOS
-- [x] Performance improvements
-- [x] Stack trace support for windows
-- [x] Json exports
+See [Roadmap](https://github.com/SickleFire/m-vis/issues/24) 
 
 ## License
 
