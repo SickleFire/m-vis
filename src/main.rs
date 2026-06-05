@@ -30,9 +30,14 @@ fn main() {
 /// Returns `Err(String)` with a human-readable message on failure.
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
+
+    if args.len() <= 1 {
+        mvis::ui::tui::tui_main().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
     let command = get_arg(&args, 1, "command")?;
     let mem = os::provider();
-
     match command {
         "scan" => {
             let queryp = get_arg(&args, 2, "process name")?;
