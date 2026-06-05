@@ -1,3 +1,4 @@
+use crate::core::delta::LeakDelta;
 use crate::os;
 use crate::os::MemoryProvider;
 use crate::types::RegionEntry;
@@ -10,6 +11,12 @@ use rayon::prelude::*;
 use std::collections::HashSet;
 use std::thread::sleep;
 use std::time::Duration;
+
+pub struct HeapDiff {
+    pub new_bytes: usize,
+    pub freed_bytes: usize,
+    pub allocation_count: Option<usize>, // None on Linux (not tracked)
+}
 
 /// Scans a process and displays memory information.
 ///
@@ -397,6 +404,16 @@ fn diff_snapshots(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usiz
         .collect()
 }
 
+pub fn diff_heap_size(before: &[HeapBlock], after: &[HeapBlock]) -> usize {
+    let before_total: usize = before.iter().map(|b| b.size).sum();
+    let after_total: usize = after.iter().map(|b| b.size).sum();
+    if after_total > before_total {
+        after_total - before_total
+    } else {
+        0
+    }
+}
+
 fn diff_freed_memory(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usize)> {
     let before_addrs: HashSet<usize> = before
         .iter()
@@ -412,64 +429,31 @@ fn diff_freed_memory(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, u
         .collect()
 }
 
-pub fn diff_heap_size(before: &[HeapBlock], after: &[HeapBlock]) -> usize {
-    let before_total: usize = before.iter().map(|b| b.size).sum();
-    let after_total: usize = after.iter().map(|b| b.size).sum();
-    if after_total > before_total {
-        after_total - before_total
-    } else {
-        0
-    }
-}
-
 pub fn leak_command(pid: u32, interval: u64) {
-    let mem = os::provider();
     let snapshot1 = heap_mode(pid);
     let dur = Duration::new(interval, 0);
-    #[cfg(target_os = "linux")]
-    let regions = mem.walk_regions(pid);
-
-    #[cfg(target_os = "linux")]
-    let trace = {
-        match crate::core::stack_trace::StackTrace::capture(pid, &regions) {
-            Ok(t) => {
-                eprintln!("[dbg] stack captured: {} frames", t.frames.len());
-                Ok(t)
-            }
-            Err(e) => {
-                eprintln!("[dbg] stack capture failed: {}", e);
-                Err(e)
-            }
-        }
-    };
     sleep(dur);
     let snapshot2 = heap_mode(pid);
-
-    #[cfg(target_os = "linux")]
-    {
-        let growth = diff_heap_size(&snapshot1, &snapshot2);
-        println!("heap growth: {} KB", growth / 1024);
-        if growth > 0 {
-            println!(
-                "\x1b[31mleak suspected — heap grew by {} KB\x1b[0m",
-                growth / 1024
-            );
-
-            if let Ok(t) = trace {
-                println!("\ncall stack at time of snapshot:");
-                if let Some(warning) = &t.symbol_warning {
-                    println!("warning: {}", warning);
-                }
-                for (i, frame) in t.frames.iter().enumerate() {
-                    println!("  #{:<2} {}", i, frame.symbol);
-                }
-            }
-        } else {
-            println!("no leak detected");
-        }
+    let growth = diff_heap_size(&snapshot1, &snapshot2);
+    let freed = diff_freed_memory(&snapshot1, &snapshot2);
+    let new_freed_memory: usize = freed.iter().map(|(_, size)| size).sum();
+    let leak_delta = LeakDelta {
+        freed_bytes: new_freed_memory,
+        allocated_bytes: growth,
+    };
+    let leak_delta_output = leak_delta.get_diagnostic_line();
+    println!("{}", leak_delta_output.0);
+    println!("heap growth: {} KB", growth / 1024);
+    if growth > 0 {
+        println!(
+            "\x1b[31mleak suspected — heap grew by {} KB\x1b[0m",
+            growth / 1024
+        );
+    } else {
+        println!("no leak detected");
     }
 
-    #[cfg(target_os = "windows")]
+    /*#[cfg(target_os = "windows")]
     {
         use crate::core::delta::LeakDelta;
         let results = diff_snapshots(&snapshot1, &snapshot2);
@@ -495,70 +479,38 @@ pub fn leak_command(pid: u32, interval: u64) {
                 new_bytes / 1024
             );
         }
-    }
+    }*/
 }
 
-pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
-    let mem = os::provider();
+pub fn leak_command_tui(pid: u32, interval: u64) -> (Vec<Line<'static>>, LeakDelta) {
+    use crate::core::delta::LeakDelta;
     let mut output: Vec<Line> = vec![];
     let snapshot1 = heap_mode(pid);
     let dur = Duration::new(interval, 0);
-    #[cfg(target_os = "linux")]
-    let regions = mem.walk_regions(pid);
-
-    #[cfg(target_os = "linux")]
-    let trace = {
-        match crate::core::stack_trace::StackTrace::capture(pid, &regions) {
-            Ok(t) => {
-                output.push(Line::raw(format!(
-                    "[dbg] stack captured: {} frames",
-                    t.frames.len()
-                )));
-                Ok(t)
-            }
-            Err(e) => {
-                output.push(Line::raw(format!("[dbg] stack capture failed: {}", e)));
-                Err(e)
-            }
-        }
-    };
     sleep(dur);
     let snapshot2 = heap_mode(pid);
-
-    #[cfg(target_os = "linux")]
-    {
-        let growth = diff_heap_size(&snapshot1, &snapshot2);
-        output.push(Line::raw(format!("heap growth: {} KB", growth / 1024)));
-        if growth > 0 {
-            output.push(Line::from(Span::styled(
-                format!("leak suspected — heap grew by {} KB", growth / 1024),
-                Style::default().fg(Color::Red),
-            )));
-
-            if let Ok(t) = trace {
-                output.push(Line::from(Span::styled(
-                    "call stack at time of snapshot:",
-                    Style::default().fg(Color::Cyan),
-                )));
-                if let Some(warning) = &t.symbol_warning {
-                    output.push(Line::from(Span::styled(
-                        format!("warning: {}", warning),
-                        Style::default().fg(Color::Yellow),
-                    )));
-                }
-                for (i, frame) in t.frames.iter().enumerate() {
-                    output.push(Line::raw(format!("  #{:<2} {}", i, frame.symbol)));
-                }
-            }
-        } else {
-            output.push(Line::raw(format!("no leak detected")));
-        }
-        output
+    let growth = diff_heap_size(&snapshot1, &snapshot2);
+    let freed = diff_freed_memory(&snapshot1, &snapshot2);
+    let new_freed_memory: usize = freed.iter().map(|(_, size)| size).sum();
+    let leak_delta = LeakDelta {
+        freed_bytes: new_freed_memory,
+        allocated_bytes: growth,
+    };
+    let leak_delta_output = leak_delta.get_diagnostic_line();
+    output.push(Line::raw(format!("{}", leak_delta_output.0)));
+    output.push(Line::raw(format!("heap growth: {} KB", growth / 1024)));
+    if growth > 0 {
+        output.push(Line::from(Span::styled(
+            format!("leak suspected — heap grew by {} KB", growth / 1024),
+            Style::default().fg(Color::Red),
+        )));
+    } else {
+        output.push(Line::raw(format!("no leak detected")));
     }
+    (output, leak_delta)
 
-    #[cfg(target_os = "windows")]
+    /*#[cfg(target_os = "windows")]
     {
-        use crate::core::delta::LeakDelta;
         let results = diff_snapshots(&snapshot1, &snapshot2);
         let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
         let freed = diff_freed_memory(&snapshot1, &snapshot2);
@@ -584,7 +536,7 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
                 "no leak detected",
                 Style::default().fg(Color::Green),
             )]));
-            output
+            (output, leak_delta)
         } else {
             output.push(Line::from(vec![Span::styled(
                 format!(
@@ -593,9 +545,9 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> Vec<Line<'static>> {
                 ),
                 Style::default().fg(Color::Red),
             )]));
-            output
+            (output, leak_delta)
         }
-    }
+    }*/
 }
 
 pub fn leak_m_command(pid: u32, interval: u64, samples: u64) {

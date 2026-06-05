@@ -1,7 +1,7 @@
 //! # Stack Trace Capture
 //!
 //! Note: stack traces show current execution position, not allocation site.
-//! 
+//!
 //!
 //! ## Platform Support
 //! - **Linux**: uses `ptrace` to attach, read registers, and walk frames.

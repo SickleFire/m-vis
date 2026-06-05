@@ -4,12 +4,13 @@ use ratatui::layout::{Constraint, Layout, Position};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::Span;
 use ratatui::text::{Line, Text};
-use ratatui::widgets::Wrap;
+use ratatui::widgets::{Axis, Chart, Dataset, Wrap};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 
 use super::commands;
 use super::render::format_size;
+use crate::core::delta::{DiagnosticSeverity, LeakDelta};
 use crate::types::{HeapBlock, RegionProtect};
 
 enum AppEvent {
@@ -17,6 +18,7 @@ enum AppEvent {
     ScanError(String),
     Output(Line<'static>),
     RunCommand(String),
+    LeakResult(LeakDelta),
 }
 
 pub fn tui_main() -> Result<()> {
@@ -65,10 +67,12 @@ struct App {
     is_loading: bool,
     loading_msg: String,
     watch_stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    leak_deltas: Vec<LeakDelta>,
 }
 enum HeapViewMode {
     Metrics,     // high-level view
     Allocations, // table view
+    Chart,       // Chart
 }
 enum InputMode {
     Normal,
@@ -104,6 +108,7 @@ impl App {
             is_loading: false,
             loading_msg: String::new(),
             watch_stop: None,
+            leak_deltas: vec![],
         };
         app.push_message("mvis ready. type 'help' for commands.".into());
         app
@@ -254,6 +259,7 @@ impl App {
                 let cmd = match mode.as_str() {
                     "-h" => format!("scan {} -h", proc),
                     "-m" => format!("modules {}", proc),
+                    "-l" => format!("leak {} 1", proc),
                     _ => {
                         self.push_message("unknown watch mode".into());
                         return;
@@ -267,10 +273,7 @@ impl App {
                 let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 self.watch_stop = Some(stop.clone());
 
-                self.push_message(format!(
-                    "watching: {} (100 iterations, Ctrl+W to stop)",
-                    cmd
-                ));
+                self.push_message(format!("watching: {}", cmd));
 
                 std::thread::spawn(move || {
                     let mut i = 0u64;
@@ -286,7 +289,7 @@ impl App {
 
                         tx.send(AppEvent::RunCommand(cmd.clone())).ok();
 
-                        std::thread::sleep(std::time::Duration::from_secs(1));
+                        std::thread::sleep(std::time::Duration::from_secs(2));
                         i += 1;
                     }
                     tx.send(AppEvent::Output("watch complete".into())).ok();
@@ -343,16 +346,17 @@ impl App {
                     let parts_ref: Vec<&str> = parts_owned.iter().map(|s| s.as_str()).collect();
                     match commands::leak(parts_ref) {
                         Ok(result) => {
-                            for line in result {
+                            for line in result.0 {
                                 tx.send(AppEvent::Output(line)).ok();
                             }
+                            tx.send(AppEvent::LeakResult(result.1)).ok();
                         }
                         Err(e) => {
                             tx.send(AppEvent::Output(Line::raw(format!("{}", e)))).ok();
                         }
                     };
                 });
-            },
+            }
             ["scan", _proc, "-h"] | ["scan", _proc, "-h", "-g"] => {
                 let proc_name = _proc.to_string();
                 let parts_owned: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
@@ -462,6 +466,13 @@ impl App {
                     AppEvent::RunCommand(command) => {
                         self.dispatch(&command);
                     }
+                    AppEvent::LeakResult(delta) => {
+                        self.is_loading = false;
+                        self.leak_deltas.push(delta);
+                        if self.leak_deltas.len() > 30 {
+                            self.leak_deltas.remove(0);
+                        }
+                    }
                 }
             }
 
@@ -478,7 +489,8 @@ impl App {
                             KeyCode::Tab => {
                                 self.heap_view_mode = match self.heap_view_mode {
                                     HeapViewMode::Metrics => HeapViewMode::Allocations,
-                                    HeapViewMode::Allocations => HeapViewMode::Metrics,
+                                    HeapViewMode::Allocations => HeapViewMode::Chart,
+                                    HeapViewMode::Chart => HeapViewMode::Metrics,
                                 };
                             }
                             //page through table
@@ -627,36 +639,132 @@ impl App {
             processlayout[1],
         );
 
-        let heap_lines = match &self.heap_history.last() {
-            None => vec![Line::raw("No heap data."), Line::raw("Run: scan <proc> -h")],
-            Some(snap) => {
-                let panel_height = innerlayout[1].height as usize;
-                self.alloc_table_page_size = panel_height.saturating_sub(6); // header + footer
-                let w = innerlayout[1].width as usize;
+        if matches!(self.heap_view_mode, HeapViewMode::Chart) {
+            let raw: Vec<f64> = self
+                .leak_deltas
+                .iter()
+                .map(|d| d.net_change() as f64 / 1024.0)
+                .collect();
 
-                match self.heap_view_mode {
-                    HeapViewMode::Metrics => render_heap_metrics(snap, w),
-                    HeapViewMode::Allocations => render_alloc_table(
-                        snap,
-                        self.alloc_table_page,
-                        self.alloc_table_page_size,
-                        self.alloc_table_selected,
+            if raw.len() < 2 {
+                frame.render_widget(
+                    Paragraph::new(vec![
+                        Line::raw(""),
+                        Line::from(Span::styled(
+                            "  Watching for leak delta...",
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                        Line::raw("  Need 2+ leak scans to plot."),
+                        Line::raw("  Run: watch <proc> -l"),
+                    ])
+                    .block(
+                        Block::bordered()
+                            .title("Leak Delta [Tab for metrics]")
+                            .fg(Color::Green),
                     ),
-                }
-            }
-        };
+                    innerlayout[1],
+                );
+            } else {
+                let data: Vec<(f64, f64)> = raw
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &v)| (i as f64, v))
+                    .collect();
 
-        frame.render_widget(
-            Paragraph::new(heap_lines).block(
-                Block::bordered()
-                    .title(match self.heap_view_mode {
-                        HeapViewMode::Metrics => "Heap View [Tab for table]",
-                        HeapViewMode::Allocations => "Heap View [Tab for metrics]",
-                    })
-                    .fg(Color::Green),
-            ),
-            innerlayout[1],
-        );
+                let max_val = raw.iter().cloned().fold(0f64, f64::max).max(1.0);
+                let min_val = raw.iter().cloned().fold(0f64, f64::min).min(-1.0);
+                let max_abs = max_val.abs().max(min_val.abs());
+                let y_max = max_abs * 1.1;
+                let y_min = -max_abs * 1.1;
+                let x_max = (raw.len() - 1) as f64;
+
+                let last_net = self.leak_deltas.last().map(|d| d.net_change()).unwrap_or(0);
+                let line_color = if last_net > 0 {
+                    Color::Red
+                } else {
+                    Color::Green
+                };
+
+                let dataset = Dataset::default()
+                    .name("Net KB / sample")
+                    .marker(ratatui::symbols::Marker::Braille)
+                    .graph_type(ratatui::widgets::GraphType::Line)
+                    .style(Style::default().fg(line_color))
+                    .data(&data);
+
+                let label_bot = format!("{:.0}KB", y_min);
+                let label_top = format!("+{:.0}KB", y_max);
+
+                let title = if let Some(last_delta) = self.leak_deltas.last() {
+                    let (msg, severity) = last_delta.get_diagnostic_line();
+                    let color = match severity {
+                        DiagnosticSeverity::LeakSuspected => Color::Red,
+                        DiagnosticSeverity::Reclaimed => Color::Blue,
+                        DiagnosticSeverity::Healthy => Color::Green,
+                    };
+                    let panel_w = innerlayout[1].width as usize;
+                    let short = if msg.len() + 6 > panel_w {
+                        format!("  {}", &msg[..panel_w.saturating_sub(6)])
+                    } else {
+                        format!("  {}", msg)
+                    };
+                    Line::from(Span::styled(short, Style::default().fg(color)))
+                } else {
+                    Line::raw("Leak Delta")
+                };
+
+                frame.render_widget(
+                    Chart::new(vec![dataset])
+                        .block(Block::bordered().title(title).fg(Color::Green))
+                        .x_axis(
+                            Axis::default()
+                                .title("Samples")
+                                .bounds([0.0, x_max])
+                                .labels(["oldest", "newest"]),
+                        )
+                        .y_axis(
+                            Axis::default()
+                                .title("Net KB")
+                                .bounds([y_min, y_max])
+                                .labels([label_bot.as_str(), "0", label_top.as_str()]),
+                        ),
+                    innerlayout[1],
+                );
+            }
+        } else {
+            let heap_lines = match &self.heap_history.last() {
+                None => vec![Line::raw("No heap data."), Line::raw("Run: scan <proc> -h")],
+                Some(snap) => {
+                    let panel_height = innerlayout[1].height as usize;
+                    self.alloc_table_page_size = panel_height.saturating_sub(6);
+                    let w = innerlayout[1].width as usize;
+
+                    match self.heap_view_mode {
+                        HeapViewMode::Metrics => render_heap_metrics(snap, w),
+                        HeapViewMode::Allocations => render_alloc_table(
+                            snap,
+                            self.alloc_table_page,
+                            self.alloc_table_page_size,
+                            self.alloc_table_selected,
+                        ),
+                        HeapViewMode::Chart => unreachable!(),
+                    }
+                }
+            };
+
+            frame.render_widget(
+                Paragraph::new(heap_lines).block(
+                    Block::bordered()
+                        .title(match self.heap_view_mode {
+                            HeapViewMode::Metrics => "Heap View [Tab for table]",
+                            HeapViewMode::Allocations => "Heap View [Tab for metrics]",
+                            HeapViewMode::Chart => unreachable!(),
+                        })
+                        .fg(Color::Green),
+                ),
+                innerlayout[1],
+            );
+        }
 
         let footer_text = match self.input_mode {
             InputMode::Normal => Line::from(vec![

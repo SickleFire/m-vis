@@ -1,3 +1,4 @@
+use crate::core::delta::LeakDelta;
 use crate::core::scan::leak_command_tui;
 use crate::core::scan::scan_with_modes_tui;
 use crate::os;
@@ -51,12 +52,12 @@ pub fn leak_m(args: Vec<&str>, tx: Sender<Line<'static>>) -> Result<(), String> 
     Ok(())
 }
 
-pub fn leak(args: Vec<&str>) -> Result<Vec<Line<'static>>, String> {
+pub fn leak(args: Vec<&str>) -> Result<(Vec<Line<'static>>, LeakDelta), String> {
     let queryp = args[1];
     let pid = find_pid(queryp.to_string()).unwrap();
     let interval: u64 = args[2].parse().unwrap();
-    let lines = leak_command_tui(pid, interval);
-    Ok(lines)
+    let (lines, delta) = leak_command_tui(pid, interval);
+    Ok((lines, delta))
 }
 
 pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {

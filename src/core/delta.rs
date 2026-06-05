@@ -5,7 +5,7 @@ pub struct LeakDelta {
 }
 
 impl LeakDelta {
-    /// Computes the net change. 
+    /// Computes the net change.
     /// Positive means accumulation (leak), negative means memory is being drained.
     pub fn net_change(&self) -> isize {
         self.allocated_bytes as isize - self.freed_bytes as isize
@@ -20,18 +20,27 @@ impl LeakDelta {
 
         if net > 0 {
             (
-                format!("Positive Allocation: +{} KB (Allocated: {} KB | Freed: {} KB) -> Leak Suspected!", net_kb, allocated_kb, freed_kb),
-                DiagnosticSeverity::LeakSuspected
+                format!(
+                    "Positive Allocation: +{} KB (Allocated: {} KB | Freed: {} KB) -> Leak Suspected!",
+                    net_kb, allocated_kb, freed_kb
+                ),
+                DiagnosticSeverity::LeakSuspected,
             )
         } else if net < 0 {
             (
-                format!("Negative Allocation: -{} KB (Allocated: {} KB | Freed: {} KB) -> Memory Reclaimed.", net_kb, allocated_kb, freed_kb),
-                DiagnosticSeverity::Reclaimed
+                format!(
+                    "Negative Allocation: -{} KB (Allocated: {} KB | Freed: {} KB) -> Memory Reclaimed.",
+                    net_kb, allocated_kb, freed_kb
+                ),
+                DiagnosticSeverity::Reclaimed,
             )
         } else {
             (
-                format!("Balanced Allocation: 0 KB Change (Allocated: {} KB | Freed: {} KB) -> Healthy.", allocated_kb, freed_kb),
-                DiagnosticSeverity::Healthy
+                format!(
+                    "Balanced Allocation: 0 KB Change (Allocated: {} KB | Freed: {} KB) -> Healthy.",
+                    allocated_kb, freed_kb
+                ),
+                DiagnosticSeverity::Healthy,
             )
         }
     }
