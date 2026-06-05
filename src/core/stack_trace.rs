@@ -1,6 +1,7 @@
 //! # Stack Trace Capture
 //!
-//! Cross-platform stack trace capture for running processes.
+//! Note: stack traces show current execution position, not allocation site.
+//! 
 //!
 //! ## Platform Support
 //! - **Linux**: uses `ptrace` to attach, read registers, and walk frames.

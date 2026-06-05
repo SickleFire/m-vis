@@ -333,13 +333,25 @@ impl App {
                     }
                 });
             }
-            ["leak", _proc, _secs] => match commands::leak(parts) {
-                Ok(result) => {
-                    for line in result {
-                        self.push_line(line);
-                    }
-                }
-                Err(e) => self.push_message(format!("Error: {e}")),
+            ["leak", _proc, _secs] => {
+                let proc_name = _proc.to_string();
+                let parts_owned: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
+                let tx = self.tx.clone();
+                self.is_loading = true;
+                self.loading_msg = format!("scanning leak for {}...", proc_name);
+                std::thread::spawn(move || {
+                    let parts_ref: Vec<&str> = parts_owned.iter().map(|s| s.as_str()).collect();
+                    match commands::leak(parts_ref) {
+                        Ok(result) => {
+                            for line in result {
+                                tx.send(AppEvent::Output(line)).ok();
+                            }
+                        }
+                        Err(e) => {
+                            tx.send(AppEvent::Output(Line::raw(format!("{}", e)))).ok();
+                        }
+                    };
+                });
             },
             ["scan", _proc, "-h"] | ["scan", _proc, "-h", "-g"] => {
                 let proc_name = _proc.to_string();
