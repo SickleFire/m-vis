@@ -318,7 +318,7 @@ pub fn scan_with_modes_tui(
     }
 }
 
-fn heap_mode(pid: u32) -> Vec<HeapBlock> {
+pub fn heap_mode(pid: u32) -> Vec<HeapBlock> {
     let mem = os::provider();
     let heaps = mem.walk_heap(pid);
     heaps

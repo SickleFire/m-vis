@@ -12,9 +12,11 @@ use super::commands;
 use super::render::format_size;
 use crate::core::delta::{DiagnosticSeverity, LeakDelta};
 use crate::types::{HeapBlock, RegionProtect};
+use crate::ui::commands::ScanResult;
 
 enum AppEvent {
-    ScanResult(commands::ScanResult),
+    BaseLine(ScanResult),
+    ScanResult(ScanResult),
     ScanError(String),
     Output(Line<'static>),
     RunCommand(String),
@@ -58,6 +60,7 @@ struct App {
     current_pid: Option<u32>,
     current_memory_mb: Option<u64>,
     heap_history: Vec<HeapSnapshot>,
+    current_baseline: Option<ScanResult>,
     alloc_table_page: usize,      // current page
     alloc_table_page_size: usize, // rows per page, derived from panel height
     alloc_table_selected: usize,  // highlighted row
@@ -99,6 +102,7 @@ impl App {
             current_pid: None,
             current_memory_mb: None,
             heap_history: vec![],
+            current_baseline: None,
             alloc_table_page: 0,
             alloc_table_page_size: 0,
             alloc_table_selected: 0,
@@ -250,6 +254,28 @@ impl App {
     }
     fn handle_command(&mut self, parts: Vec<&str>) {
         match parts.clone().as_slice() {
+            ["baseline", _proc] => {
+                let query = "scan".to_string();
+                let proc = _proc.to_string();
+                let mode = "-h".to_string();
+                let tx = self.tx.clone();
+                std::thread::spawn(move || {
+                    let mut parts_ref: Vec<&str> = vec![];
+                    parts_ref.push(&query);
+                    parts_ref.push(&proc);
+                    parts_ref.push(&mode);
+                    match commands::scan(parts_ref) {
+                        Ok(result) => {
+                            tx.send(AppEvent::BaseLine(result)).ok();
+                            tx.send(AppEvent::Output(Line::raw(format!("Baseline set"))))
+                                .ok();
+                        }
+                        Err(e) => {
+                            tx.send(AppEvent::Output(Line::raw(format!("{}", e)))).ok();
+                        }
+                    };
+                });
+            }
             ["watch", _proc, _mode] => {
                 let proc = _proc.to_string();
                 let mode = _mode.to_string();
@@ -425,6 +451,9 @@ impl App {
             // check for background results
             while let Ok(event) = self.rx.try_recv() {
                 match event {
+                    AppEvent::BaseLine(result) => {
+                        self.current_baseline = Some(result);
+                    }
                     AppEvent::ScanResult(result) => {
                         //Updates Heap View doesnt Differentiate between -h, -a or -v
                         self.is_loading = false;
