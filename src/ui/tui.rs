@@ -15,6 +15,7 @@ use crate::types::{HeapBlock, RegionProtect};
 use crate::ui::commands::ScanResult;
 
 enum AppEvent {
+    DiffResult(Vec<HeapBlock>, ScanResult),
     BaseLine(ScanResult),
     ScanResult(ScanResult),
     ScanError(String),
@@ -260,10 +261,7 @@ impl App {
                 let mode = "-h".to_string();
                 let tx = self.tx.clone();
                 std::thread::spawn(move || {
-                    let mut parts_ref: Vec<&str> = vec![];
-                    parts_ref.push(&query);
-                    parts_ref.push(&proc);
-                    parts_ref.push(&mode);
+                    let parts_ref: Vec<&str> = vec![&query, &proc, &mode];
                     match commands::scan(parts_ref) {
                         Ok(result) => {
                             tx.send(AppEvent::BaseLine(result)).ok();
@@ -272,6 +270,34 @@ impl App {
                         }
                         Err(e) => {
                             tx.send(AppEvent::Output(Line::raw(format!("{}", e)))).ok();
+                        }
+                    };
+                });
+            }
+            ["diff", _proc] => {
+                if self.current_baseline.is_none() {
+                    self.push_message("no baseline set — run 'baseline <proc>' first".into());
+                    return;
+                }
+
+                let baseline_blocks = self.current_baseline.as_ref().unwrap().blocks.clone();
+                let proc_name = _proc.to_string();
+                let query = "scan".to_string();
+                let mode = "-h".to_string();
+
+                let tx = self.tx.clone();
+                std::thread::spawn(move || {
+                    let parts_ref: Vec<&str> = vec![&query, &proc_name, &mode];
+                    match commands::scan(parts_ref) {
+                        Ok(result) => {
+                            tx.send(AppEvent::DiffResult(baseline_blocks, result)).ok();
+                        }
+                        Err(e) => {
+                            tx.send(AppEvent::Output(Line::from(Span::styled(
+                                format!("error: {}", e),
+                                Style::default().fg(Color::Red),
+                            ))))
+                            .ok();
                         }
                     };
                 });
@@ -451,6 +477,138 @@ impl App {
             // check for background results
             while let Ok(event) = self.rx.try_recv() {
                 match event {
+                    AppEvent::DiffResult(baseline_blocks, current) => {
+                        use std::collections::HashSet;
+
+                        let baseline_addrs: HashSet<usize> = baseline_blocks
+                            .iter()
+                            .filter(|b| !b.is_free)
+                            .map(|b| b.address)
+                            .collect();
+
+                        let current_addrs: HashSet<usize> = current
+                            .blocks
+                            .iter()
+                            .filter(|b| !b.is_free)
+                            .map(|b| b.address)
+                            .collect();
+
+                        // new blocks — in current but not baseline
+                        let new_blocks: Vec<_> = current
+                            .blocks
+                            .iter()
+                            .filter(|b| !b.is_free && !baseline_addrs.contains(&b.address))
+                            .collect();
+
+                        // removed blocks — in baseline but not current
+                        let removed_blocks: Vec<_> = baseline_blocks
+                            .iter()
+                            .filter(|b| !b.is_free && !current_addrs.contains(&b.address))
+                            .collect();
+
+                        let new_bytes: usize = new_blocks.iter().map(|b| b.size).sum();
+                        let removed_bytes: usize = removed_blocks.iter().map(|b| b.size).sum();
+                        let net: i64 = new_bytes as i64 - removed_bytes as i64;
+
+                        let baseline_total: usize = baseline_blocks
+                            .iter()
+                            .filter(|b| !b.is_free)
+                            .map(|b| b.size)
+                            .sum();
+                        let current_total: usize = current
+                            .blocks
+                            .iter()
+                            .filter(|b| !b.is_free)
+                            .map(|b| b.size)
+                            .sum();
+
+                        // header
+                        self.push_line(Line::raw("─".repeat(40)));
+                        self.push_line(Line::raw(format!(
+                            "baseline : {} blocks ({} KB)",
+                            baseline_blocks.iter().filter(|b| !b.is_free).count(),
+                            baseline_total / 1024,
+                        )));
+                        self.push_line(Line::raw(format!(
+                            "current  : {} blocks ({} KB)",
+                            current.blocks.iter().filter(|b| !b.is_free).count(),
+                            current_total / 1024,
+                        )));
+                        self.push_line(Line::raw("─".repeat(40)));
+
+                        // new blocks
+                        self.push_line(Line::from(Span::styled(
+                            format!(
+                                "+{} new blocks (+{} KB)",
+                                new_blocks.len(),
+                                new_bytes / 1024
+                            ),
+                            Style::default().fg(Color::Green),
+                        )));
+                        for block in new_blocks.iter().take(5) {
+                            self.push_line(Line::from(Span::styled(
+                                format!("  + 0x{:x}  {} KB", block.address, block.size / 1024),
+                                Style::default().fg(Color::Green),
+                            )));
+                        }
+                        if new_blocks.len() > 5 {
+                            self.push_line(Line::raw(format!(
+                                "  ... and {} more",
+                                new_blocks.len() - 5
+                            )));
+                        }
+
+                        // removed blocks
+                        self.push_line(Line::from(Span::styled(
+                            format!(
+                                "-{} removed (-{} KB)",
+                                removed_blocks.len(),
+                                removed_bytes / 1024
+                            ),
+                            Style::default().fg(Color::Red),
+                        )));
+
+                        // net growth
+                        let net_color = if net > 0 { Color::Red } else { Color::Green };
+                        let net_sign = if net > 0 { "+" } else { "" };
+                        self.push_line(Line::from(Span::styled(
+                            format!("net growth: {}{} KB", net_sign, net / 1024),
+                            Style::default().fg(net_color),
+                        )));
+
+                        // verdict
+                        let verdict = if net > 1024 * 1024 {
+                            ("LEAK CONFIRMED — significant growth", Color::Red)
+                        } else if net > 0 {
+                            ("growth detected — monitor over time", Color::Yellow)
+                        } else {
+                            ("no growth — heap stable", Color::Green)
+                        };
+                        self.push_line(Line::from(Span::styled(
+                            verdict.0,
+                            Style::default().fg(verdict.1),
+                        )));
+                        self.push_line(Line::raw("─".repeat(40)));
+
+                        // update heap history with current
+                        let used: Vec<_> = current.blocks.iter().filter(|b| !b.is_free).collect();
+                        let free: Vec<_> = current.blocks.iter().filter(|b| b.is_free).collect();
+                        self.heap_history.push(HeapSnapshot {
+                            fragmentation: current.frag,
+                            used_blocks: used.len(),
+                            free_blocks: free.len(),
+                            used_bytes: current.used_bytes,
+                            free_bytes: current.free_bytes,
+                            largest_used: used.iter().map(|b| b.size).max().unwrap_or(0),
+                            largest_free: free.iter().map(|b| b.size).max().unwrap_or(0),
+                            blocks: current.blocks,
+                            pointer_blocks: current.pointer_blocks,
+                            referenced_blocks: current.referenced_blocks,
+                        });
+                        if self.heap_history.len() > 4 {
+                            self.heap_history.remove(0);
+                        }
+                    }
                     AppEvent::BaseLine(result) => {
                         self.current_baseline = Some(result);
                     }
