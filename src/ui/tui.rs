@@ -302,6 +302,9 @@ impl App {
                     };
                 });
             }
+            ["clearbaseline"] => {
+                self.current_baseline = None;
+            }
             ["watch", _proc, _mode] => {
                 let proc = _proc.to_string();
                 let mode = _mode.to_string();
