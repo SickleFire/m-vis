@@ -48,22 +48,16 @@ fn run() -> Result<(), String> {
             scan_with_modes(&mode.to_string(), pid, json, output);
         }
         "leak" => {
+            let interval = parse_positive_u64_arg(&args, 3, "interval")?;
             let queryp = get_arg(&args, 2, "process name")?;
             let pid = find_pid(queryp.to_string())?;
-            let interval: u64 = get_arg(&args, 3, "interval (seconds)")?
-                .parse::<u64>()
-                .map_err(|_| "interval must be a number".to_string())?;
             leak_command(pid, interval);
         }
         "leak-m" => {
+            let interval = parse_positive_u64_arg(&args, 3, "interval")?;
+            let samples = parse_positive_u64_arg(&args, 4, "samples")?;
             let queryp = get_arg(&args, 2, "process name")?;
             let pid = find_pid(queryp.to_string())?;
-            let interval: u64 = get_arg(&args, 3, "interval (seconds)")?
-                .parse::<u64>()
-                .map_err(|_| "interval must be a number".to_string())?;
-            let samples: u64 = get_arg(&args, 4, "samples")?
-                .parse::<u64>()
-                .map_err(|_| "samples must be a number".to_string())?;
             leak_m_command(pid, interval, samples);
         }
         "list" => {
@@ -227,6 +221,90 @@ fn get_arg<'a>(args: &'a [String], index: usize, name: &str) -> Result<&'a str, 
     args.get(index)
         .map(|s| s.as_str())
         .ok_or_else(|| format!("missing argument: {}", name))
+}
+
+fn parse_positive_u64_arg(args: &[String], index: usize, name: &str) -> Result<u64, String> {
+    let value = get_arg(args, index, name)?;
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|_| format!("{} must be a positive number", name))?;
+    if parsed == 0 {
+        return Err(format!("{} must be greater than 0", name));
+    }
+    Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{find_pid, get_arg, parse_positive_u64_arg};
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn get_arg_returns_existing_value() {
+        let args = args(&["mvis", "leak", "app", "5"]);
+
+        assert_eq!(get_arg(&args, 2, "process name"), Ok("app"));
+    }
+
+    #[test]
+    fn get_arg_reports_missing_value() {
+        let args = args(&["mvis", "leak"]);
+
+        assert_eq!(
+            get_arg(&args, 2, "process name"),
+            Err("missing argument: process name".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_positive_u64_arg_accepts_positive_values() {
+        let args = args(&["mvis", "leak", "app", "5"]);
+
+        assert_eq!(parse_positive_u64_arg(&args, 3, "interval"), Ok(5));
+    }
+
+    #[test]
+    fn parse_positive_u64_arg_rejects_zero() {
+        let args = args(&["mvis", "leak", "app", "0"]);
+
+        assert_eq!(
+            parse_positive_u64_arg(&args, 3, "interval"),
+            Err("interval must be greater than 0".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_positive_u64_arg_rejects_negative_values() {
+        let args = args(&["mvis", "leak", "app", "-5"]);
+
+        assert_eq!(
+            parse_positive_u64_arg(&args, 3, "interval"),
+            Err("interval must be a positive number".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_positive_u64_arg_reports_missing_values() {
+        let args = args(&["mvis", "leak", "app"]);
+
+        assert_eq!(
+            parse_positive_u64_arg(&args, 3, "interval"),
+            Err("missing argument: interval".to_string())
+        );
+    }
+
+    #[test]
+    fn find_pid_reports_missing_process() {
+        let result = find_pid("mvis_process_that_should_not_exist_12345".to_string());
+
+        assert_eq!(
+            result,
+            Err("process 'mvis_process_that_should_not_exist_12345' not found".to_string())
+        );
+    }
 }
 
 /// Checks if the current process is running with elevated privileges.

@@ -239,15 +239,70 @@ fn test_leak_command_valid_args() {
 /// Test that leak detection rejects invalid interval
 #[test]
 fn test_leak_command_invalid_interval() {
-    let process_name = get_stable_process();
-    let output = run_mvis(&["leak", process_name, "not_a_number"]);
+    let output = run_mvis(&["leak", "nonexistent_process_xyz_12345", "not_a_number"]);
 
     assert!(!output.status.success(), "Should fail for invalid interval");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        !stderr.is_empty(),
-        "Should provide error for invalid interval"
+        stderr.contains("interval must be a positive number"),
+        "Should provide error for invalid interval. Got: {}",
+        stderr
+    );
+}
+
+/// Test that leak detection rejects out-of-range intervals before process lookup
+#[test]
+fn test_leak_command_rejects_out_of_range_intervals() {
+    for interval in ["0", "-5"] {
+        let output = run_mvis(&["leak", "nonexistent_process_xyz_12345", interval]);
+
+        assert!(
+            !output.status.success(),
+            "Should fail for out-of-range interval {}",
+            interval
+        );
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("interval must be"),
+            "Should provide interval error for {}. Got: {}",
+            interval,
+            stderr
+        );
+    }
+}
+
+/// Test that multi-sample leak detection rejects missing sample arguments
+#[test]
+fn test_leak_m_command_missing_samples() {
+    let output = run_mvis(&["leak-m", "nonexistent_process_xyz_12345", "1"]);
+
+    assert!(!output.status.success(), "Should fail when samples are missing");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("missing argument: samples"),
+        "Should provide error for missing samples. Got: {}",
+        stderr
+    );
+}
+
+/// Test that leak detection reports a missing process after valid arguments parse
+#[test]
+fn test_leak_command_invalid_process_name() {
+    let output = run_mvis(&["leak", "nonexistent_process_xyz_12345", "1"]);
+
+    assert!(
+        !output.status.success(),
+        "Should fail for nonexistent process"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not found"),
+        "Should provide process lookup error. Got: {}",
+        stderr
     );
 }
 
