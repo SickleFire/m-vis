@@ -156,6 +156,9 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
+/// TUI variant of [`scan_with_modes`]: returns styled [`Line`]s instead of printing to stdout.
+///
+/// Supported modes: `"-a"` (all regions), `"-h"` (heap stats), `"-v"` (verbose region table).
 pub fn scan_with_modes_tui(
     mode: &String,
     pid: u32,
@@ -318,6 +321,7 @@ pub fn scan_with_modes_tui(
     }
 }
 
+/// Returns all heap blocks (used and free) for the process with the given `pid`.
 pub fn heap_mode(pid: u32) -> Vec<HeapBlock> {
     let mem = os::provider();
     let heaps = mem.walk_heap(pid);
@@ -397,6 +401,7 @@ fn diff_snapshots(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usiz
         .collect()
 }
 
+/// Returns the net byte growth between two heap snapshots, or `0` if the heap shrank.
 pub fn diff_heap_size(before: &[HeapBlock], after: &[HeapBlock]) -> usize {
     let before_total: usize = before.iter().map(|b| b.size).sum();
     let after_total: usize = after.iter().map(|b| b.size).sum();
@@ -422,6 +427,7 @@ fn diff_freed_memory(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, u
         .collect()
 }
 
+/// Takes two heap snapshots separated by `interval` seconds and prints a leak diagnosis to stdout.
 pub fn leak_command(pid: u32, interval: u64) {
     let snapshot1 = heap_mode(pid);
     let dur = Duration::new(interval, 0);
@@ -447,6 +453,7 @@ pub fn leak_command(pid: u32, interval: u64) {
     }
 }
 
+/// TUI variant of [`leak_command`]: returns styled output lines and a [`LeakDelta`] summary.
 pub fn leak_command_tui(pid: u32, interval: u64) -> (Vec<Line<'static>>, LeakDelta) {
     use crate::core::delta::LeakDelta;
     let mut output: Vec<Line> = vec![];
@@ -475,6 +482,7 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> (Vec<Line<'static>>, LeakDel
     (output, leak_delta)
 }
 
+/// Runs `samples` heap snapshots, each `interval` seconds apart, printing new allocations to stdout.
 pub fn leak_m_command(pid: u32, interval: u64, samples: u64) {
     let mut prev = heap_mode(pid);
     for i in 0..samples {
@@ -501,6 +509,7 @@ pub fn leak_m_command(pid: u32, interval: u64, samples: u64) {
 
 use std::sync::mpsc::Sender;
 
+/// TUI variant of [`leak_m_command`]: sends result lines to `tx` as each sample is taken.
 pub fn leak_m_command_tui(pid: u32, interval: u64, samples: u64, tx: Sender<Line<'static>>) {
     let mut prev = heap_mode(pid);
 

@@ -3,6 +3,7 @@ use crate::types::RegionKind::*;
 use crate::types::RegionProtect::*;
 use crate::types::RegionState::*;
 
+/// Prints a color-coded ASCII memory map bar to stdout scaled to `width` characters.
 pub fn render_bar(regions: &[Region], labels: &[&str], width: usize) {
     let total: usize = regions.iter().map(|r| r.size).sum();
     let mut bar = String::new();
@@ -33,6 +34,7 @@ pub fn render_bar(regions: &[Region], labels: &[&str], width: usize) {
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
+/// Returns a ratatui [`Line`] of colored spans representing the memory map, scaled to `width` characters.
 pub fn render_bar_tui(regions: &[Region], labels: &[&str], width: usize) -> Line<'static> {
     let total: usize = regions.iter().map(|r| r.size).sum();
     let mut spans: Vec<Span> = vec![];
@@ -63,6 +65,9 @@ pub fn render_bar_tui(regions: &[Region], labels: &[&str], width: usize) -> Line
     Line::from(spans)
 }
 
+/// Prints a tabular listing of memory regions with address, size, label, and name to stdout.
+///
+/// Regions labeled `"?"` are skipped.
 pub fn render_verbose(regions: &[Region], labels: &[&str]) {
     for (i, region) in regions.iter().enumerate() {
         if labels[i] == "?" {
@@ -85,6 +90,9 @@ pub fn render_verbose(regions: &[Region], labels: &[&str]) {
     }
 }
 
+/// Returns a [`Vec`] of ratatui [`Line`]s with a tabular listing of memory regions.
+///
+/// Regions labeled `"?"` are skipped.
 pub fn render_verbose_tui(regions: &[Region], labels: &[&str]) -> Vec<Line<'static>> {
     let mut output: Vec<Line> = vec![];
     for (i, region) in regions.iter().enumerate() {
@@ -109,6 +117,7 @@ pub fn render_verbose_tui(regions: &[Region], labels: &[&str]) -> Vec<Line<'stat
     output
 }
 
+/// Formats a byte count as a human-readable string (`B`, `KB`, or `MB`).
 pub fn format_size(bytes: usize) -> String {
     if bytes >= 1024 * 1024 {
         format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))

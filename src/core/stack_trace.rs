@@ -35,7 +35,7 @@ pub struct StackFrame {
     pub instruction_pointer: usize,
     pub base_pointer: usize,
     pub return_address: usize,
-    /// Resolved as "region_name+0x<offset>" using your existing Region vec
+    /// Resolved as "region_name+0x\<offset\>" using your existing Region vec
     pub symbol: String,
 }
 
@@ -49,6 +49,9 @@ pub struct StackTrace {
 // ── platform dispatch ────────────────────────────────────────────────────────
 
 impl StackTrace {
+    /// Captures a stack trace for the process with the given `pid`, using `regions` for symbol resolution.
+    ///
+    /// Dispatches to the platform-specific implementation (Linux via ptrace, Windows via DbgHelp).
     pub fn capture(pid: u32, regions: &[crate::types::Region]) -> Result<Self, String> {
         #[cfg(target_os = "linux")]
         return linux::capture(pid, regions);
@@ -63,6 +66,9 @@ impl StackTrace {
 
 // ── symbol resolution (shared) ───────────────────────────────────────────────
 
+/// Resolves an instruction pointer `ip` to a human-readable symbol using the loaded region map.
+///
+/// Returns `"region_name+0xoffset"` when a containing region is found, otherwise `"0x<ip>"`.
 pub fn resolve(ip: usize, regions: &[crate::types::Region]) -> String {
     regions
         .iter()
@@ -87,6 +93,7 @@ mod linux {
     use nix::sys::wait::{WaitStatus, waitpid};
     use nix::unistd::Pid;
 
+    /// Attaches via `ptrace` to capture the stack trace of the process, then detaches.
     pub fn capture(pid: u32, regions: &[crate::types::Region]) -> Result<StackTrace, String> {
         let nix_pid = Pid::from_raw(pid as i32);
 
@@ -324,6 +331,7 @@ mod windows {
         SuspendThread, THREAD_GET_CONTEXT, THREAD_QUERY_INFORMATION, THREAD_SUSPEND_RESUME,
     };
 
+    /// Captures the stack trace of every thread in the process using `DbgHelp` (`StackWalk64`).
     pub fn capture(pid: u32, regions: &[crate::types::Region]) -> Result<StackTrace, String> {
         unsafe {
             // open process

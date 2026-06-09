@@ -283,6 +283,10 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
     blocks
 }
 
+/// Enumerates every individual heap block for the process using `Toolhelp32` `HEAPENTRY32` records.
+///
+/// Unlike `walk_heap`, which returns one block per heap list entry, this function walks inside
+/// each heap to produce per-allocation granularity.
 pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Diagnostics::ToolHelp::{
