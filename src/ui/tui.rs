@@ -465,8 +465,12 @@ impl App {
                 self.push_message("  scan   <proc> -v          loaded dlls".into());
                 self.push_message("  leak   <proc> secs        detect leaks".into());
                 self.push_message("  leak-m <proc> secs samp   detect leaks-samples".into());
-                self.push_message("  watch  <proc> -flag       watch processes indefinitely".into());
-                self.push_message("  stopwatch                 stop the current watch process".into());
+                self.push_message(
+                    "  watch  <proc> -flag       watch processes indefinitely".into(),
+                );
+                self.push_message(
+                    "  stopwatch                 stop the current watch process".into(),
+                );
                 self.push_message("  list                      list processes".into());
                 self.push_message("  clear                     clear output history".into());
             }
