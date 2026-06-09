@@ -278,7 +278,10 @@ fn test_leak_command_rejects_out_of_range_intervals() {
 fn test_leak_m_command_missing_samples() {
     let output = run_mvis(&["leak-m", "nonexistent_process_xyz_12345", "1"]);
 
-    assert!(!output.status.success(), "Should fail when samples are missing");
+    assert!(
+        !output.status.success(),
+        "Should fail when samples are missing"
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
