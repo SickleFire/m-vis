@@ -37,6 +37,7 @@ cargo test
 - Test on the platform your change affects
 - Add documentation comments (`///`) to any public functions you add
 - Describe what your PR does and why in the description
+- Do Cargo fmt
 
 ---
 
