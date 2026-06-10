@@ -24,6 +24,7 @@ enum AppEvent {
     LeakResult(LeakDelta),
 }
 
+/// Initializes the terminal and runs the interactive TUI application until the user quits.
 pub fn tui_main() -> Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init(); // replaces ratatui::run

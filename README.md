@@ -111,16 +111,7 @@ sudo cargo test --test integration_tests -- --include-ignored
 # On Windows (run terminal as Administrator)
 cargo test --test integration_tests -- --include-ignored
 ```
-
 ---
-
-## Known Limitations
-
-- On Linux, stack trace function names require DWARF debug info. If the target binary is stripped or built without `-g`, `mvis leak` falls back to module offsets such as `libc.so+0x2a3f1` and prints a warning.
-- ptrace leak tracing requires sudo or ptrace_scope=0
-- macOS not supported yet
----
-
 ### Roadmap
 See [Roadmap](https://github.com/SickleFire/m-vis/issues/24) 
 

@@ -22,11 +22,15 @@ pub struct ScanResult {
 
 use std::sync::mpsc::Sender;
 
+/// Returns `true` if `name` matches a Rayon worker thread naming convention.
 pub fn is_worker_thread_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     name == "rayon-worker" || name.starts_with("rayon-worker-")
 }
 
+/// Returns `true` if a process with the given `name` should be shown in listings.
+///
+/// Worker threads are always hidden; if `filter` is `Some`, the name must also contain the filter string.
 pub fn process_name_is_visible(name: &str, filter: Option<&str>) -> bool {
     if is_worker_thread_name(name) {
         return false;
@@ -35,6 +39,9 @@ pub fn process_name_is_visible(name: &str, filter: Option<&str>) -> bool {
     filter.map_or(true, |f| name.to_ascii_lowercase().contains(f))
 }
 
+/// Returns `true` if a sysinfo [`Process`](sysinfo::Process) entry should appear in listings.
+///
+/// Kernel threads are always hidden; the process name is further checked with [`process_name_is_visible`].
 pub fn process_is_visible(process: &sysinfo::Process, filter: Option<&str>) -> bool {
     if process.thread_kind().is_some() {
         return false;
@@ -44,6 +51,10 @@ pub fn process_is_visible(process: &sysinfo::Process, filter: Option<&str>) -> b
     process_name_is_visible(name.as_ref(), filter)
 }
 
+/// Runs a multi-sample heap leak detection scan for the process in `args[1]`.
+///
+/// `args[2]` is the interval in seconds between samples and `args[3]` is the sample count.
+/// Each result line is sent to `tx` as it is produced.
 pub fn leak_m(args: Vec<&str>, tx: Sender<Line<'static>>) -> Result<(), String> {
     let queryp = args[1];
     let pid = find_pid(queryp.to_string())?;
@@ -53,6 +64,10 @@ pub fn leak_m(args: Vec<&str>, tx: Sender<Line<'static>>) -> Result<(), String> 
     Ok(())
 }
 
+/// Performs a single-interval heap leak detection scan for the process in `args[1]`.
+///
+/// `args[2]` is the wait interval in seconds between the two snapshots.
+/// Returns styled output lines and a [`LeakDelta`] describing the growth.
 pub fn leak(args: Vec<&str>) -> Result<(Vec<Line<'static>>, LeakDelta), String> {
     let queryp = args[1];
     let pid = find_pid(queryp.to_string()).unwrap();
@@ -61,6 +76,10 @@ pub fn leak(args: Vec<&str>) -> Result<(Vec<Line<'static>>, LeakDelta), String> 
     Ok((lines, delta))
 }
 
+/// Scans the memory of the process named in `args[1]` with the mode in `args[2]`.
+///
+/// Supported modes: `"-a"` (all regions), `"-h"` (heap), `"-v"` (verbose).
+/// Optional `args[3]` can be `"-g"` for granular heap blocks or `"-json"` for JSON output.
 pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {
     let queryp = args[1];
     let pid = find_pid(queryp.to_string())?;
@@ -125,6 +144,9 @@ pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {
     })
 }
 
+/// Lists loaded modules for the process named in `args[1]`, with an optional mode flag in `args[2]`.
+///
+/// Pass `"-t"` as the flag to restrict output to tampered or injected modules.
 pub fn modules(args: Vec<&str>) -> Result<Vec<String>, String> {
     let mem = os::provider();
     let queryp = args[1];
@@ -152,6 +174,9 @@ fn find_pid(name: String) -> Result<u32, String> {
         .ok_or_else(|| format!("process '{}' not found", name))
 }
 
+/// Returns a formatted list of running processes sorted by memory usage, up to the top 20.
+///
+/// An optional name filter can be provided as `args[1]`.
 pub fn list_processes(args: Vec<&str>) -> Result<Vec<String>, String> {
     let mut output: Vec<String> = vec![];
     use sysinfo::System;

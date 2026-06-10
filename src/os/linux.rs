@@ -21,6 +21,7 @@ impl MemoryProvider for LinuxMemory {
     }
 }
 
+/// Reads `/proc/<pid>/maps` and returns all mapped virtual memory regions for the process.
 pub fn walk_regions(pid: u32) -> Vec<Region> {
     let path = format!("/proc/{}/maps", pid);
     let content = fs::read_to_string(path).expect("failed to read maps");
@@ -75,6 +76,7 @@ pub fn walk_regions(pid: u32) -> Vec<Region> {
     regions
 }
 
+/// Reads `/proc/<pid>/smaps` and returns heap blocks for the process.
 pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
     let path = format!("/proc/{}/smaps", pid);
     let content = fs::read_to_string(path).expect("failed to read maps");
@@ -118,6 +120,10 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
     blocks
 }
 
+/// Returns loaded modules for the process, cross-checking disk vs memory for tampering.
+///
+/// Pass `flag = "-t"` to return only modules whose `.text` section differs from disk
+/// (i.e. injected, modified, or tampered). Returns all modules when `flag` is empty.
 pub fn list_modules(pid: u32, flag: String) -> Vec<ModuleInfo> {
     use std::collections::HashMap;
 
