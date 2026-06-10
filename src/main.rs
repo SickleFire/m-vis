@@ -175,11 +175,6 @@ fn run() -> Result<(), String> {
                 Err(e) => return Err(e),
             }
         }
-        "debug" => {
-            let queryp = get_arg(&args, 2, "process name")?;
-            let pid = find_pid(queryp.to_string())?;
-            mvis::core::alloc_trace::trace_allocations(pid, 10);
-        }
         "tui" => {
             let _ = tui_main();
         }
