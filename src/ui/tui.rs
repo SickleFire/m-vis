@@ -149,6 +149,57 @@ impl App {
         self.scroll_offset = 0;
     }
 
+    /// Compute a memory-growth alert badge from the latest leak deltas.
+    /// Returns (label, style) for the badge, or None if no leak data is available.
+    fn compute_badge(&self) -> Option<(String, Style)> {
+        let count = self.leak_deltas.len();
+        if count < 2 {
+            return None;
+        }
+        // Use the last delta's net change as the current per-sample growth.
+        // Watch mode samples every ~2 seconds, so this approximates MB/s.
+        let last = self.leak_deltas.last().unwrap();
+        let net = last.net_change();
+        if net <= 0 {
+            return Some((
+                "✓ HEALTHY".into(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+        let net_mb = net as f64 / (1024.0 * 1024.0);
+        // Average per-sample MB rate (spanning count-1 intervals of ~2s each)
+        let per_sample_rate = net_mb;
+        if per_sample_rate > 100.0 {
+            Some((
+                "◆ CRITICAL".into(),
+                Style::default()
+                    .fg(Color::Red)
+                    .add_modifier(Modifier::BOLD | Modifier::RAPID_BLINK),
+            ))
+        } else if per_sample_rate > 20.0 {
+            Some((
+                "▲ WARNING".into(),
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ))
+        } else if per_sample_rate > 2.0 {
+            Some((
+                "△ CAUTION".into(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ))
+        } else {
+            Some((
+                "✓ HEALTHY".into(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ))
+        }
+    }
+
     fn move_cursor_left(&mut self) {
         let cursor_moved_left = self.character_index.saturating_sub(1);
         self.character_index = self.clamp_cursor(cursor_moved_left);
@@ -797,18 +848,39 @@ impl App {
 
         frame.render_widget(messages_widget, messages_area);
 
-        let proc_info = match &self.current_proc {
-            Some(name) => format!(
-                "Process : {}\nPID     : {}\nMemory  : {} MB",
-                name,
-                self.current_pid.unwrap_or(0),
-                self.current_memory_mb.unwrap_or(0),
-            ),
-            None => "No process scanned yet.\nRun: scan <proc> -a".to_string(),
+        let proc_lines = match &self.current_proc {
+            Some(name) => {
+                let mut lines = vec![
+                    Line::from(Span::styled(
+                        format!("Process : {}", name),
+                        Style::default().fg(Color::White),
+                    )),
+                    Line::from(Span::styled(
+                        format!("PID     : {}", self.current_pid.unwrap_or(0)),
+                        Style::default().fg(Color::White),
+                    )),
+                    Line::from(Span::styled(
+                        format!("Memory  : {} MB", self.current_memory_mb.unwrap_or(0)),
+                        Style::default().fg(Color::White),
+                    )),
+                ];
+                // Append alert badge
+                if let Some((label, style)) = self.compute_badge() {
+                    lines.push(Line::from(vec![
+                        Span::raw("Status  : "),
+                        Span::styled(label, style),
+                    ]));
+                }
+                lines
+            }
+            None => vec![
+                Line::raw("No process scanned yet."),
+                Line::raw("Run: scan <proc> -a"),
+            ],
         };
 
         frame.render_widget(
-            Paragraph::new(proc_info).block(
+            Paragraph::new(proc_lines).block(
                 Block::new()
                     .borders(Borders::ALL)
                     .fg(Color::Cyan)
@@ -827,10 +899,10 @@ impl App {
             }
             Err(e) => self.push_message(format!("Error: {e}")),
         };
-        let proc_lines: Vec<Line> = proc_list.into_iter().map(Line::from).collect();
+        let list_lines: Vec<Line> = proc_list.into_iter().map(Line::from).collect();
 
         frame.render_widget(
-            Paragraph::new(proc_lines)
+            Paragraph::new(list_lines)
                 .block(Block::new().borders(Borders::ALL).title("Process List"))
                 .fg(Color::Cyan),
             processlayout[1],
