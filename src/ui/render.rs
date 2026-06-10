@@ -2,6 +2,7 @@ use crate::types::Region;
 use crate::types::RegionKind::*;
 use crate::types::RegionProtect::*;
 use crate::types::RegionState::*;
+use crate::utils::formatting::format_bytes;
 
 pub fn render_bar(regions: &[Region], labels: &[&str], width: usize) {
     let total: usize = regions.iter().map(|r| r.size).sum();
@@ -78,7 +79,7 @@ pub fn render_verbose(regions: &[Region], labels: &[&str]) {
         println!(
             "{:<18} {:<12} {:<16} {}",
             format!("0x{:x}", region.base),
-            format_size(region.size),
+            format_bytes(region.size as u64),
             labels[i],
             name,
         );
@@ -101,7 +102,7 @@ pub fn render_verbose_tui(regions: &[Region], labels: &[&str]) -> Vec<Line<'stat
         output.push(Line::raw(format!(
             "{:<18} {:<12} {:<16} {}",
             format!("0x{:x}", region.base),
-            format_size(region.size),
+            format_bytes(region.size as u64),
             labels[i],
             name,
         )));
@@ -109,12 +110,3 @@ pub fn render_verbose_tui(regions: &[Region], labels: &[&str]) -> Vec<Line<'stat
     output
 }
 
-pub fn format_size(bytes: usize) -> String {
-    if bytes >= 1024 * 1024 {
-        format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))
-    } else if bytes >= 1024 {
-        format!("{:.1}KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{}B", bytes)
-    }
-}

@@ -5,6 +5,7 @@ use crate::os;
 use crate::os::MemoryProvider;
 use crate::types::HeapBlock;
 use ratatui::text::Line;
+use crate::utils::formatting::format_bytes;
 
 pub struct ScanResult {
     pub lines: Vec<Line<'static>>,
@@ -167,10 +168,10 @@ pub fn list_processes(args: Vec<&str>) -> Result<Vec<String>, String> {
     output.push(format!("{}", "-".repeat(50)));
     for process in processes.iter().take(20) {
         output.push(format!(
-            "{:<8} {:<30} {} MB",
+            "{:<8} {:<30} {}",
             process.pid().as_u32(),
             process.name().to_string_lossy(),
-            process.memory() / 1024 / 1024,
+            format_bytes(process.memory()),
         ));
     }
     Ok(output)
