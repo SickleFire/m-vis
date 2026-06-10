@@ -1,3 +1,5 @@
+use crate::utils::formatting::format_bytes;
+
 #[derive(Debug, Clone)]
 pub struct LeakDelta {
     pub freed_bytes: usize,
@@ -14,14 +16,14 @@ impl LeakDelta {
     /// Generates the single line of truth requested for the TUI/CLI
     pub fn get_diagnostic_line(&self) -> (String, DiagnosticSeverity) {
         let net = self.net_change();
-        let allocated_kb = self.allocated_bytes / 1024;
-        let freed_kb = self.freed_bytes / 1024;
-        let net_kb = net.abs() / 1024;
+        let allocated_kb = format_bytes(self.allocated_bytes as u64);
+        let freed_kb = format_bytes(self.freed_bytes as u64);
+        let net_kb = format_bytes(net.abs() as u64);
 
         if net > 0 {
             (
                 format!(
-                    "Positive Allocation: +{} KB (Allocated: {} KB | Freed: {} KB) -> Leak Suspected!",
+                    "Positive Allocation: +{} (Allocated: {} | Freed: {} ) -> Leak Suspected!",
                     net_kb, allocated_kb, freed_kb
                 ),
                 DiagnosticSeverity::LeakSuspected,
@@ -29,7 +31,7 @@ impl LeakDelta {
         } else if net < 0 {
             (
                 format!(
-                    "Negative Allocation: -{} KB (Allocated: {} KB | Freed: {} KB) -> Memory Reclaimed.",
+                    "Negative Allocation: -{} (Allocated: {} | Freed: {}) -> Memory Reclaimed.",
                     net_kb, allocated_kb, freed_kb
                 ),
                 DiagnosticSeverity::Reclaimed,
@@ -37,7 +39,7 @@ impl LeakDelta {
         } else {
             (
                 format!(
-                    "Balanced Allocation: 0 KB Change (Allocated: {} KB | Freed: {} KB) -> Healthy.",
+                    "Balanced Allocation: 0 KB Change (Allocated: {} | Freed: {}) -> Healthy.",
                     allocated_kb, freed_kb
                 ),
                 DiagnosticSeverity::Healthy,

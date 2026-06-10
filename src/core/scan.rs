@@ -7,6 +7,7 @@ use crate::types::RegionProtect::*;
 use crate::types::RegionState::*;
 use crate::types::{HeapBlock, Region};
 use crate::ui::render;
+use crate::utils::formatting::format_bytes;
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::thread::sleep;
@@ -48,8 +49,8 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
             let free_bytes: usize = free.par_iter().map(|b| b.size).sum();
 
             println!("total blocks : {}", blocks.len());
-            println!("used blocks  : {} ({} KB)", used.len(), used_bytes / 1024);
-            println!("free blocks  : {} ({} KB)", free.len(), free_bytes / 1024);
+            println!("used blocks  : {} ({})", used.len(), format_bytes(used_bytes as u64));
+            println!("free blocks  : {} ({})", free.len(), format_bytes(free_bytes as u64));
 
             let largest_free = blocks
                 .iter()
@@ -70,7 +71,7 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
             let mut sorted = used.clone();
             sorted.sort_by(|a, b| b.size.cmp(&a.size));
             for block in sorted.iter().take(10) {
-                println!("  0x{:x}  {} KB", block.address, block.size / 1024);
+                println!("  0x{:x}  {}", block.address, format_bytes(block.size as u64));
             }
 
             // size distribution
@@ -211,14 +212,14 @@ pub fn scan_with_modes_tui(
 
             output.push(Line::raw(format!("total blocks : {}", blocks.len())));
             output.push(Line::raw(format!(
-                "used blocks  : {} ({} KB)",
+                "used blocks  : {} ({})",
                 used.len(),
-                used_bytes / 1024
+                format_bytes(used_bytes as u64),
             )));
             output.push(Line::raw(format!(
-                "free blocks  : {} ({} KB)",
+                "free blocks  : {} ({})",
                 free.len(),
-                free_bytes / 1024
+                format_bytes(free_bytes as u64)
             )));
             output.push(Line::raw(format!("fragmentation: {:.1}%", frag)));
             output.push(Line::raw("top 10 largest allocations:"));
@@ -226,9 +227,9 @@ pub fn scan_with_modes_tui(
             sorted.sort_by(|a, b| b.size.cmp(&a.size));
             for block in sorted.iter().take(10) {
                 output.push(Line::raw(format!(
-                    "  0x{:x}  {} KB",
+                    "  0x{:x}  {}",
                     block.address,
-                    block.size / 1024
+                    format_bytes(block.size as u64)
                 )));
             }
             output.push(Line::raw("size distribution:"));
@@ -442,11 +443,11 @@ pub fn leak_command(pid: u32, interval: u64) {
     };
     let leak_delta_output = leak_delta.get_diagnostic_line();
     println!("{}", leak_delta_output.0);
-    println!("heap growth: {} KB", growth / 1024);
+    println!("heap growth: {}", format_bytes(growth as u64));
     if growth > 0 {
         println!(
-            "\x1b[31mleak suspected — heap grew by {} KB\x1b[0m",
-            growth / 1024
+            "\x1b[31mleak suspected — heap grew by {}\x1b[0m",
+            format_bytes(growth as u64)
         );
     } else {
         println!("no leak detected");
@@ -470,10 +471,10 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> (Vec<Line<'static>>, LeakDel
     };
     let leak_delta_output = leak_delta.get_diagnostic_line();
     output.push(Line::raw(format!("{}", leak_delta_output.0)));
-    output.push(Line::raw(format!("heap growth: {} KB", growth / 1024)));
+    output.push(Line::raw(format!("heap growth: {}", format_bytes(growth as u64))));
     if growth > 0 {
         output.push(Line::from(Span::styled(
-            format!("leak suspected — heap grew by {} KB", growth / 1024),
+            format!("leak suspected — heap grew by {}", format_bytes(growth as u64)),
             Style::default().fg(Color::Red),
         )));
     } else {
@@ -493,9 +494,9 @@ pub fn leak_m_command(pid: u32, interval: u64, samples: u64) {
 
         print!("sample {} ", i + 1);
         println!(
-            "new allocations: {}  new bytes: {} KB  {}",
+            "new allocations: {}  new bytes: {}  {}",
             results.len(),
-            new_bytes / 1024,
+            format_bytes(new_bytes as u64),
             if results.is_empty() {
                 "ok"
             } else {
@@ -532,9 +533,9 @@ pub fn leak_m_command_tui(pid: u32, interval: u64, samples: u64, tx: Sender<Line
 
         tx.send(Line::from(vec![
             Span::raw(format!(
-                "  new allocations: {}  new bytes: {} KB  ",
+                "  new allocations: {}  new bytes: {}  ",
                 results.len(),
-                new_bytes / 1024,
+                format_bytes(new_bytes as u64),
             )),
             status_span,
         ]))

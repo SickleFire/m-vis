@@ -15,6 +15,7 @@ use mvis::os;
 use mvis::os::MemoryProvider;
 use mvis::ui::commands::process_is_visible;
 use mvis::ui::tui::tui_main;
+use mvis::utils::formatting::format_bytes;
 use std::env;
 
 fn main() {
@@ -75,10 +76,10 @@ fn run() -> Result<(), String> {
             println!("{}", "-".repeat(50));
             for process in processes.iter().take(20) {
                 println!(
-                    "{:<8} {:<30} {} MB",
+                    "{:<8} {:<30} {}",
                     process.pid().as_u32(),
                     process.name().to_string_lossy(),
-                    process.memory() / 1024 / 1024,
+                    format_bytes(process.memory()),
                 );
             }
         }
@@ -105,7 +106,7 @@ fn run() -> Result<(), String> {
                 println!(
                     "0x{:<16x} {:<10} {:<10} {}",
                     m.base,
-                    format!("{:.1}MB", m.size as f64 / 1024.0 / 1024.0),
+                    format_bytes(m.size as u64),
                     status,
                     m.name,
                 );
