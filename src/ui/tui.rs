@@ -9,10 +9,10 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 
 use super::commands;
-use super::render::format_size;
 use crate::core::delta::{DiagnosticSeverity, LeakDelta};
 use crate::types::{HeapBlock, RegionProtect};
 use crate::ui::commands::ScanResult;
+use crate::utils::formatting::format_bytes;
 
 enum AppEvent {
     DiffResult(Vec<HeapBlock>, ScanResult),
@@ -586,29 +586,33 @@ impl App {
                         // header
                         self.push_line(Line::raw("─".repeat(40)));
                         self.push_line(Line::raw(format!(
-                            "baseline : {} blocks ({} KB)",
+                            "baseline : {} blocks ({})",
                             baseline_blocks.iter().filter(|b| !b.is_free).count(),
-                            baseline_total / 1024,
+                            format_bytes(baseline_total as u64),
                         )));
                         self.push_line(Line::raw(format!(
-                            "current  : {} blocks ({} KB)",
+                            "current  : {} blocks ({})",
                             current.blocks.iter().filter(|b| !b.is_free).count(),
-                            current_total / 1024,
+                            format_bytes(current_total as u64),
                         )));
                         self.push_line(Line::raw("─".repeat(40)));
 
                         // new blocks
                         self.push_line(Line::from(Span::styled(
                             format!(
-                                "+{} new blocks (+{} KB)",
+                                "+{} new blocks (+{})",
                                 new_blocks.len(),
-                                new_bytes / 1024
+                                format_bytes(new_bytes as u64),
                             ),
                             Style::default().fg(Color::Green),
                         )));
                         for block in new_blocks.iter().take(5) {
                             self.push_line(Line::from(Span::styled(
-                                format!("  + 0x{:x}  {} KB", block.address, block.size / 1024),
+                                format!(
+                                    "  + 0x{:x}  {}",
+                                    block.address,
+                                    format_bytes(block.size as u64)
+                                ),
                                 Style::default().fg(Color::Green),
                             )));
                         }
@@ -622,9 +626,9 @@ impl App {
                         // removed blocks
                         self.push_line(Line::from(Span::styled(
                             format!(
-                                "-{} removed (-{} KB)",
+                                "-{} removed (-{})",
                                 removed_blocks.len(),
-                                removed_bytes / 1024
+                                format_bytes(removed_bytes as u64)
                             ),
                             Style::default().fg(Color::Red),
                         )));
@@ -633,7 +637,7 @@ impl App {
                         let net_color = if net > 0 { Color::Red } else { Color::Green };
                         let net_sign = if net > 0 { "+" } else { "" };
                         self.push_line(Line::from(Span::styled(
-                            format!("net growth: {}{} KB", net_sign, net / 1024),
+                            format!("net growth: {}{}", net_sign, format_bytes(net as u64)),
                             Style::default().fg(net_color),
                         )));
 
@@ -1145,7 +1149,7 @@ fn render_heap_metrics(snap: &HeapSnapshot, width: usize) -> Vec<Line<'static>> 
             "░".repeat(bar_w - used_fill),
             Style::default().fg(Color::DarkGray),
         ),
-        Span::raw(format!("  {}", format_size(snap.used_bytes))),
+        Span::raw(format!("  {}", format_bytes(snap.used_bytes as u64))),
     ]));
     lines.push(Line::from(vec![
         Span::raw("Free          "),
@@ -1154,7 +1158,7 @@ fn render_heap_metrics(snap: &HeapSnapshot, width: usize) -> Vec<Line<'static>> 
             Style::default().fg(Color::Blue),
         ),
         Span::styled("░".repeat(used_fill), Style::default().fg(Color::DarkGray)),
-        Span::raw(format!("  {}", format_size(snap.free_bytes))),
+        Span::raw(format!("  {}", format_bytes(snap.free_bytes as u64))),
     ]));
 
     lines.push(Line::raw(""));
@@ -1166,11 +1170,11 @@ fn render_heap_metrics(snap: &HeapSnapshot, width: usize) -> Vec<Line<'static>> 
     lines.push(Line::raw(format!("Free blocks  : {}", snap.free_blocks)));
     lines.push(Line::raw(format!(
         "Largest used : {}",
-        format_size(snap.largest_used)
+        format_bytes(snap.largest_used as u64)
     )));
     lines.push(Line::raw(format!(
         "Largest free : {}",
-        format_size(snap.largest_free)
+        format_bytes(snap.largest_free as u64)
     )));
     lines.push(Line::raw(""));
 
@@ -1267,7 +1271,7 @@ fn render_alloc_table(
                 "{:<5} {:<18} {:<12} {:<8} {:<6} {}",
                 idx,
                 format!("0x{:x}", block.address),
-                format_size(block.size),
+                format_bytes(block.size as u64),
                 note,
                 protect,
                 tag,
