@@ -479,7 +479,19 @@ mod windows {
 
 #[cfg(test)]
 mod tests {
-    use super::{MISSING_DEBUG_INFO_WARNING, symbol_warning};
+    use super::{MISSING_DEBUG_INFO_WARNING, resolve, symbol_warning};
+    use crate::types::{Region, RegionKind, RegionProtect, RegionState};
+
+    fn make_region(base: usize, size: usize, name: &str) -> Region {
+        Region {
+            base,
+            size,
+            state: RegionState::Committed,
+            kind: RegionKind::Private,
+            protect: RegionProtect::ReadWrite,
+            name: name.to_string(),
+        }
+    }
 
     #[test]
     fn symbol_warning_describes_missing_linux_debug_info() {
@@ -488,5 +500,29 @@ mod tests {
             Some(MISSING_DEBUG_INFO_WARNING)
         );
         assert!(symbol_warning(false).is_none());
+    }
+
+    // resolve() formats an instruction pointer as "region_name+0xoffset" when the IP
+    // falls inside a known region, or "0x<ip>" when no region contains it.
+
+    #[test]
+    fn resolve_returns_name_and_offset_for_named_region() {
+        // IP 0x1010 is 0x10 bytes into the region starting at 0x1000.
+        let regions = vec![make_region(0x1000, 0x1000, "libfoo.so")];
+        assert_eq!(resolve(0x1010, &regions), "libfoo.so+0x10");
+    }
+
+    #[test]
+    fn resolve_uses_anonymous_label_for_unnamed_region() {
+        // A region with an empty name should use the "<anonymous>" placeholder.
+        let regions = vec![make_region(0x1000, 0x1000, "")];
+        assert_eq!(resolve(0x1010, &regions), "<anonymous>+0x10");
+    }
+
+    #[test]
+    fn resolve_falls_back_to_hex_address_when_no_region_matches() {
+        // IP 0x5000 is outside every region, so the raw address is returned.
+        let regions = vec![make_region(0x1000, 0x1000, "libfoo.so")];
+        assert_eq!(resolve(0x5000, &regions), "0x5000");
     }
 }
