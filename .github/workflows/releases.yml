@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Login to GitHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and package
+        run: |
+          cargo build --release
+          cp target/release/mvis-linux-x86_64 mvis-linux-x86_64
+          cp target/release/mvis-windows-x86_64.exe mvis-windows-x86_64.exe
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TITLE: ${{ github.event.release.name }}
+          RELEASE_NOTES: ${{ github.event.release.body }}
+        with:
+          generate_notes: true
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v3
+        with:
+          name: mvis-linux-x86_64
+          path: mvis-linux-x86_64
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v3
+        with:
+          name: mvis-windows-x86_64.exe
+          path: mvis-windows-x86_64.exe
+
+      - name: Upload release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: mvis-linux-x86_64
+          file: mvis-windows-x86_64.exe
+          asset_name: mvis-linux-x86_64
+          asset_name: mvis-windows-x86_64.exe
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
