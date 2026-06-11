@@ -139,18 +139,16 @@ fn run() -> Result<(), String> {
                 }
             }
         }
-        "help" | "--help" | "-h" => {
-            match args.get(2).map(|s| s.as_str()) {
-                Some("scan") => print_help_scan(),
-                Some("leak") => print_help_leak(),
-                Some("leak-m") => print_help_leak_m(),
-                Some("list") => print_help_list(),
-                Some("modules") => print_help_modules(),
-                #[cfg(target_os = "windows")]
-                Some("wintrace") => print_help_wintrace(),
-                _ => print_help_all(),
-            }
-        }
+        "help" | "--help" | "-h" => match args.get(2).map(|s| s.as_str()) {
+            Some("scan") => print_help_scan(),
+            Some("leak") => print_help_leak(),
+            Some("leak-m") => print_help_leak_m(),
+            Some("list") => print_help_list(),
+            Some("modules") => print_help_modules(),
+            #[cfg(target_os = "windows")]
+            Some("wintrace") => print_help_wintrace(),
+            _ => print_help_all(),
+        },
         "version" | "--version" | "-v" => {
             println!("{}", mvis::VERSION);
         }
@@ -236,11 +234,23 @@ fn print_help_all() {
     println!("Commands:");
     println!("  {:<14} {}", "scan", "Analyze memory layout of a process");
     println!("  {:<14} {}", "leak", "Detect memory leaks in a process");
-    println!("  {:<14} {}", "leak-m", "Detect leaks across multiple samples");
-    println!("  {:<14} {}", "list", "Show running processes by memory usage");
-    println!("  {:<14} {}", "modules", "List loaded modules for a process");
+    println!(
+        "  {:<14} {}",
+        "leak-m", "Detect leaks across multiple samples"
+    );
+    println!(
+        "  {:<14} {}",
+        "list", "Show running processes by memory usage"
+    );
+    println!(
+        "  {:<14} {}",
+        "modules", "List loaded modules for a process"
+    );
     #[cfg(target_os = "windows")]
-    println!("  {:<14} {}", "wintrace", "Capture a stack trace (Windows only)");
+    println!(
+        "  {:<14} {}",
+        "wintrace", "Capture a stack trace (Windows only)"
+    );
     println!("  {:<14} {}", "tui", "Launch the interactive TUI");
     println!("  {:<14} {}", "help [cmd]", "Show command help");
     println!("  {:<14} {}", "version", "Show version");
