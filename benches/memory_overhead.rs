@@ -20,12 +20,15 @@ fn main() {
 
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     let mem_after = sys.process(pid).unwrap().memory();
-    
+
     // Prevent compiler from optimizing away the vector
     std::hint::black_box(&blocks);
 
     let diff = mem_after.saturating_sub(mem_before);
-    
+
     println!("Generated {} simulated heap blocks.", blocks.len());
-    println!("mvis memory overhead: {:.2} MB", diff as f64 / 1024.0 / 1024.0);
+    println!(
+        "mvis memory overhead: {:.2} MB",
+        diff as f64 / 1024.0 / 1024.0
+    );
 }

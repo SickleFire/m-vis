@@ -1,8 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use mvis::core::scan::{diff_heap_size, diff_snapshots};
-use mvis::types::{HeapBlock, RegionProtect, Region, RegionState, RegionKind};
-use mvis::ui::render::render_verbose_tui;
 use mvis::os::MemoryProvider;
+use mvis::types::{HeapBlock, Region, RegionKind, RegionProtect, RegionState};
+use mvis::ui::render::render_verbose_tui;
 use std::process;
 
 fn generate_heap_blocks(count: usize) -> Vec<HeapBlock> {
@@ -27,7 +27,11 @@ fn generate_regions(count: usize) -> Vec<Region> {
             state: RegionState::Committed,
             kind: RegionKind::Private,
             protect: RegionProtect::ReadWrite,
-            name: if i % 2 == 0 { "[heap]".to_string() } else { "".to_string() },
+            name: if i % 2 == 0 {
+                "[heap]".to_string()
+            } else {
+                "".to_string()
+            },
         });
     }
     regions
@@ -45,7 +49,7 @@ fn bench_leak_sample(c: &mut Criterion) {
             is_free: false,
             vm_protect: RegionProtect::ReadWrite,
         });
-        
+
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &_size| {
             b.iter(|| {
                 let size_diff = diff_heap_size(black_box(&before), black_box(&after));
@@ -62,13 +66,17 @@ fn bench_tui_responsiveness(c: &mut Criterion) {
     for size in [1000, 10_000].iter() {
         let regions = generate_regions(*size);
         let labels = vec!["heap"; *size];
-        
-        group.bench_with_input(BenchmarkId::new("render_verbose_tui", size), size, |b, &_size| {
-            b.iter(|| {
-                let lines = render_verbose_tui(black_box(&regions), black_box(&labels));
-                black_box(lines);
-            });
-        });
+
+        group.bench_with_input(
+            BenchmarkId::new("render_verbose_tui", size),
+            size,
+            |b, &_size| {
+                b.iter(|| {
+                    let lines = render_verbose_tui(black_box(&regions), black_box(&labels));
+                    black_box(lines);
+                });
+            },
+        );
     }
     group.finish();
 }
@@ -76,7 +84,7 @@ fn bench_tui_responsiveness(c: &mut Criterion) {
 fn bench_scan_large_process(c: &mut Criterion) {
     let mut group = c.benchmark_group("scan_large_process");
     let pid = process::id();
-    
+
     // Note: This benchmark depends on the OS memory API and the current state of the process.
     // It is highly variable but provides a baseline for OS system call performance.
     group.bench_function("walk_regions", |b| {
@@ -92,7 +100,7 @@ fn bench_scan_large_process(c: &mut Criterion) {
             black_box(heap);
         });
     });
-    
+
     group.finish();
 }
 
