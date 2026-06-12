@@ -9,7 +9,6 @@ use crate::types::{HeapBlock, Region};
 use crate::ui::render;
 use crate::utils::formatting::format_bytes;
 use rayon::prelude::*;
-use std::collections::HashSet;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -400,16 +399,17 @@ fn classify(regions: &[Region]) -> Vec<&str> {
 }
 
 pub fn diff_snapshots(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usize)> {
-    let before_addrs: HashSet<usize> = before
+    let mut before_addrs: Vec<usize> = before
         .iter()
         .filter(|b| !b.is_free)
         .map(|b| b.address)
         .collect();
+    before_addrs.sort_unstable();
 
     after
         .iter()
         .filter(|b| !b.is_free)
-        .filter(|b| !before_addrs.contains(&(b.address as usize)))
+        .filter(|b| before_addrs.binary_search(&b.address).is_err())
         .map(|b| (b.address as usize, b.size))
         .collect()
 }
@@ -426,16 +426,17 @@ pub fn diff_heap_size(before: &[HeapBlock], after: &[HeapBlock]) -> usize {
 }
 
 pub fn diff_freed_memory(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usize)> {
-    let before_addrs: HashSet<usize> = before
+    let mut before_addrs: Vec<usize> = before
         .iter()
         .filter(|b| b.is_free)
         .map(|b| b.address)
         .collect();
+    before_addrs.sort_unstable();
 
     after
         .iter()
         .filter(|b| b.is_free)
-        .filter(|b| !before_addrs.contains(&(b.address as usize)))
+        .filter(|b| before_addrs.binary_search(&b.address).is_err())
         .map(|b| (b.address as usize, b.size))
         .collect()
 }
