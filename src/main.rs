@@ -30,10 +30,34 @@ fn main() {
 /// Parses arguments and dispatches to the appropriate handler.
 /// Returns `Err(String)` with a human-readable message on failure.
 fn run() -> Result<(), String> {
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
+
+    // Determine theme precedence: --theme flag -> MVIS_THEME -> dark (default)
+    let mut theme_kind = mvis::ui::theme::ThemeKind::default();
+
+    if let Ok(env_theme) = env::var("MVIS_THEME") {
+        if let Some(t) = mvis::ui::theme::ThemeKind::parse(&env_theme) {
+            theme_kind = t;
+        }
+    }
+
+    if let Some(pos) = args.iter().position(|a| a == "--theme") {
+        if pos + 1 < args.len() {
+            if let Some(t) = mvis::ui::theme::ThemeKind::parse(&args[pos + 1]) {
+                theme_kind = t;
+            } else {
+                eprintln!("warning: unknown theme '{}', falling back to default", args[pos + 1]);
+            }
+            args.remove(pos);
+            args.remove(pos);
+        } else {
+            eprintln!("warning: --theme requires a value");
+            args.remove(pos);
+        }
+    }
 
     if args.len() <= 1 {
-        mvis::ui::tui::tui_main().map_err(|e| e.to_string())?;
+        mvis::ui::tui::tui_main(theme_kind).map_err(|e| e.to_string())?;
         return Ok(());
     }
 
@@ -169,7 +193,7 @@ fn run() -> Result<(), String> {
             }
         }
         "tui" => {
-            let _ = tui_main();
+            let _ = tui_main(theme_kind);
         }
         _ => {
             return Err(format!("unknown command '{}' — run 'mvis --help'", command));
@@ -254,6 +278,14 @@ fn print_help_all() {
     println!("  {:<14} {}", "tui", "Launch the interactive TUI");
     println!("  {:<14} {}", "help [cmd]", "Show command help");
     println!("  {:<14} {}", "version", "Show version");
+    println!();
+    println!("Options:");
+    println!("  {:<14} {}", "--theme <name>", "Set UI theme (dark, light, deuteranopia, protanopia)");
+    println!();
+    println!("Theme precedence:");
+    println!("  1. --theme flag");
+    println!("  2. MVIS_THEME environment variable");
+    println!("  3. dark (default)");
     println!();
     println!("Run 'mvis help <command>' for command-specific help.");
 }

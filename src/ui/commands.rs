@@ -93,7 +93,7 @@ pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {
     #[cfg(target_os = "windows")]
     let (pointer_blocks, referenced_blocks) = crate::os::find_blocks_with_pointers(pid, &raw);
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "windows"))]
     let (pointer_blocks, referenced_blocks) = (
         std::collections::HashSet::new(),
         std::collections::HashSet::new(),
@@ -221,7 +221,7 @@ mod tests {
     }
 }
 
-fn get_heap_blocks(pid: u32, granular: bool) -> Vec<HeapBlock> {
+fn get_heap_blocks(pid: u32, _granular: bool) -> Vec<HeapBlock> {
     let mem = os::provider();
     #[cfg(target_os = "windows")]
     {
@@ -232,7 +232,7 @@ fn get_heap_blocks(pid: u32, granular: bool) -> Vec<HeapBlock> {
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "windows"))]
     {
         mem.walk_heap(pid)
     }

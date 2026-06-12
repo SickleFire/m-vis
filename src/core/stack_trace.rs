@@ -52,7 +52,7 @@ impl StackTrace {
     /// Captures a stack trace for the process with the given `pid`, using `regions` for symbol resolution.
     ///
     /// Dispatches to the platform-specific implementation (Linux via ptrace, Windows via DbgHelp).
-    pub fn capture(pid: u32, regions: &[crate::types::Region]) -> Result<Self, String> {
+    pub fn capture(_pid: u32, _regions: &[crate::types::Region]) -> Result<Self, String> {
         #[cfg(target_os = "linux")]
         return linux::capture(pid, regions);
 
