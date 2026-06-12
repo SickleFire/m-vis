@@ -41,7 +41,7 @@ fn bench_leak_sample(c: &mut Criterion) {
     let mut group = c.benchmark_group("leak_sample");
     group.sample_size(50);
     group.measurement_time(std::time::Duration::from_secs(10));
-    group.sample_mode(criterion::SampleMode::Flat);
+    group.sampling_mode(criterion::SamplingMode::Flat);
     
     for size in [1000, 10_000, 100_000].iter() {
         let before = generate_heap_blocks(*size);
@@ -89,7 +89,7 @@ fn bench_scan_large_process(c: &mut Criterion) {
     let mut group = c.benchmark_group("scan_large_process");
     group.sample_size(50);
     group.measurement_time(std::time::Duration::from_secs(10));
-    group.sample_mode(criterion::SampleMode::Flat);
+    group.sampling_mode(criterion::SamplingMode::Flat);
     
     let pid = process::id();
 
