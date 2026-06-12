@@ -205,27 +205,42 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-/// Finds a process PID by name, case-insensitive.
+/// Finds a process PID by name.
 ///
-/// # Arguments
-/// * `name` - The process name to search for (e.g. "notepad.exe")
-///
-/// # Returns
-/// * `Ok(u32)` - The PID of the first matching process
-/// * `Err(String)` - If no process with that name is found
-///
-/// # Example
-/// ```
-/// let pid = find_pid("notepad.exe".to_string())?;
-/// ```
+/// Tries an exact case-insensitive match first. If that fails, falls back to a
+/// case-insensitive substring search. When a single distinct process name matches
+/// the query the corresponding PID is returned. When multiple distinct names match,
+/// the user is shown a numbered list and prompted to choose one interactively.
 fn find_pid(name: String) -> Result<u32, String> {
-    use sysinfo::System;
-    let sys = System::new_all();
-    sys.processes()
-        .values()
-        .find(|p| p.name().to_string_lossy().to_lowercase() == name.to_lowercase())
-        .map(|p| p.pid().as_u32())
-        .ok_or_else(|| format!("process '{}' not found", name))
+    use mvis::utils::process::{FuzzyMatch, fuzzy_find_pid};
+    match fuzzy_find_pid(&name) {
+        FuzzyMatch::Found(pid) => Ok(pid),
+        FuzzyMatch::NotFound => Err(format!("process '{}' not found", name)),
+        FuzzyMatch::Ambiguous(candidates) => {
+            println!("Multiple processes match '{}':", name);
+            for (i, (pname, pid)) in candidates.iter().enumerate() {
+                println!("  [{}] {} (PID {})", i + 1, pname, pid);
+            }
+            use std::io::{self, Write};
+            print!("Select [1-{}]: ", candidates.len());
+            io::stdout().flush().map_err(|e| e.to_string())?;
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .map_err(|e| e.to_string())?;
+            let choice: usize = input
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| "invalid selection".to_string())?;
+            if choice < 1 || choice > candidates.len() {
+                return Err(format!(
+                    "selection must be between 1 and {}",
+                    candidates.len()
+                ));
+            }
+            Ok(candidates[choice - 1].1)
+        }
+    }
 }
 
 /// Gets a CLI argument by index.

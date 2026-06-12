@@ -165,13 +165,19 @@ pub fn modules(args: Vec<&str>) -> Result<Vec<String>, String> {
 }
 
 fn find_pid(name: String) -> Result<u32, String> {
-    use sysinfo::System;
-    let sys = System::new_all();
-    sys.processes()
-        .values()
-        .find(|p| p.name().to_string_lossy().to_lowercase() == name.to_lowercase())
-        .map(|p| p.pid().as_u32())
-        .ok_or_else(|| format!("process '{}' not found", name))
+    use crate::utils::process::{FuzzyMatch, fuzzy_find_pid};
+    match fuzzy_find_pid(&name) {
+        FuzzyMatch::Found(pid) => Ok(pid),
+        FuzzyMatch::NotFound => Err(format!("process '{}' not found", name)),
+        FuzzyMatch::Ambiguous(candidates) => {
+            let names: Vec<&str> = candidates.iter().map(|(n, _)| n.as_str()).collect();
+            Err(format!(
+                "'{}' matches multiple processes: {}. Use a more specific name.",
+                name,
+                names.join(", ")
+            ))
+        }
+    }
 }
 
 /// Returns a formatted list of running processes sorted by memory usage, up to the top 20.
