@@ -36,3 +36,5 @@ jobs:
         run: cargo test --test integration_tests
       - name: Check formatting
         run: cargo fmt -- --check
+      - name: Run benchmarks
+        run: cargo bench

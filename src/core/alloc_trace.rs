@@ -9,6 +9,7 @@ mod windows {
         EXIT_PROCESS_DEBUG_EVENT, WaitForDebugEvent,
     };
 
+    #[allow(dead_code)]
     pub fn trace_allocations(pid: u32, duration_secs: u64) {
         unsafe {
             DebugActiveProcess(pid).expect("failed to attach");
@@ -23,7 +24,7 @@ mod windows {
                     break;
                 }
 
-                WaitForDebugEvent(&mut event, 100);
+                let _ = WaitForDebugEvent(&mut event, 100);
 
                 match event.dwDebugEventCode {
                     EXIT_PROCESS_DEBUG_EVENT => {
@@ -35,7 +36,7 @@ mod windows {
                     }
                 }
 
-                ContinueDebugEvent(event.dwProcessId, event.dwThreadId, DBG_CONTINUE);
+                let _ = ContinueDebugEvent(event.dwProcessId, event.dwThreadId, DBG_CONTINUE);
             }
 
             DebugActiveProcessStop(pid).ok();

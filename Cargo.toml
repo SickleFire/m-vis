@@ -15,6 +15,17 @@ crossterm = "0.29.0"
 ratatui = "0.30.0"
 strip-ansi-escapes = "0.2"
 
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "mvis_benchmark"
+harness = false
+
+[[bench]]
+name = "memory_overhead"
+harness = false
+
 [target.'cfg(target_os = "windows")'.dependencies.windows]
 version = "0.62.2"
 features = [

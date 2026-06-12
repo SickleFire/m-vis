@@ -399,7 +399,7 @@ fn classify(regions: &[Region]) -> Vec<&str> {
     labels
 }
 
-fn diff_snapshots(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usize)> {
+pub fn diff_snapshots(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usize)> {
     let before_addrs: HashSet<usize> = before
         .iter()
         .filter(|b| !b.is_free)
@@ -425,7 +425,7 @@ pub fn diff_heap_size(before: &[HeapBlock], after: &[HeapBlock]) -> usize {
     }
 }
 
-fn diff_freed_memory(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usize)> {
+pub fn diff_freed_memory(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usize)> {
     let before_addrs: HashSet<usize> = before
         .iter()
         .filter(|b| b.is_free)
