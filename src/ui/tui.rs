@@ -184,7 +184,9 @@ impl App {
         } else if per_sample_rate > 20.0 {
             Some((
                 "▲ WARNING".into(),
-                Style::default().fg(self.theme.growth_critical).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.theme.growth_critical)
+                    .add_modifier(Modifier::BOLD),
             ))
         } else if per_sample_rate > 2.0 {
             Some((
@@ -350,7 +352,9 @@ impl App {
                         Err(e) => {
                             tx.send(AppEvent::Output(Line::from(Span::styled(
                                 format!("error: {}", e),
-                                Style::default().fg(crate::ui::theme::ThemeKind::default().theme().growth_critical),
+                                Style::default().fg(crate::ui::theme::ThemeKind::default()
+                                    .theme()
+                                    .growth_critical),
                             ))))
                             .ok();
                         }
@@ -435,7 +439,9 @@ impl App {
                         if let Err(e) = commands::leak_m(args, line_tx) {
                             tx2.send(AppEvent::Output(Line::from(Span::styled(
                                 format!("error: {}", e),
-                                Style::default().fg(crate::ui::theme::ThemeKind::default().theme().growth_critical),
+                                Style::default().fg(crate::ui::theme::ThemeKind::default()
+                                    .theme()
+                                    .growth_critical),
                             ))))
                             .ok();
                         }
@@ -637,7 +643,11 @@ impl App {
                         )));
 
                         // net growth
-                        let net_color = if net > 0 { self.theme.growth_critical } else { self.theme.healthy };
+                        let net_color = if net > 0 {
+                            self.theme.growth_critical
+                        } else {
+                            self.theme.healthy
+                        };
                         let net_sign = if net > 0 { "+" } else { "" };
                         self.push_line(Line::from(Span::styled(
                             format!("net growth: {}{}", net_sign, format_bytes(net as u64)),
@@ -646,9 +656,15 @@ impl App {
 
                         // verdict
                         let verdict = if net > 1024 * 1024 {
-                            ("LEAK CONFIRMED — significant growth", self.theme.growth_critical)
+                            (
+                                "LEAK CONFIRMED — significant growth",
+                                self.theme.growth_critical,
+                            )
                         } else if net > 0 {
-                            ("growth detected — monitor over time", self.theme.growth_warning)
+                            (
+                                "growth detected — monitor over time",
+                                self.theme.growth_warning,
+                            )
                         } else {
                             ("no growth — heap stable", self.theme.healthy)
                         };
@@ -776,8 +792,9 @@ impl App {
 
     fn render(&mut self, frame: &mut Frame) {
         frame.render_widget(
-            ratatui::widgets::Paragraph::new("").style(Style::default().bg(self.theme.bg).fg(self.theme.text)),
-            frame.area()
+            ratatui::widgets::Paragraph::new("")
+                .style(Style::default().bg(self.theme.bg).fg(self.theme.text)),
+            frame.area(),
         );
         let outerlayout =
             Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -826,15 +843,22 @@ impl App {
             ),
         };
         let text = Text::from(Line::from(msg)).patch_style(style);
-        let help_message = Paragraph::new(text).style(Style::default().bg(self.theme.bg).fg(self.theme.text));
+        let help_message =
+            Paragraph::new(text).style(Style::default().bg(self.theme.bg).fg(self.theme.text));
         frame.render_widget(help_message, help_area);
 
         let input = Paragraph::new(self.input.as_str())
             .style(match self.input_mode {
                 InputMode::Normal => Style::default().bg(self.theme.bg).fg(self.theme.text),
-                InputMode::Editing => Style::default().bg(self.theme.bg).fg(self.theme.growth_warning),
+                InputMode::Editing => Style::default()
+                    .bg(self.theme.bg)
+                    .fg(self.theme.growth_warning),
             })
-            .block(Block::bordered().border_style(Style::default().fg(self.theme.border)).title("MVIS CLI"));
+            .block(
+                Block::bordered()
+                    .border_style(Style::default().fg(self.theme.border))
+                    .title("MVIS CLI"),
+            );
         frame.render_widget(input, input_area);
         match self.input_mode {
             // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
@@ -853,7 +877,11 @@ impl App {
         }
 
         let messages_widget = Paragraph::new(self.messages.clone())
-            .block(Block::bordered().border_style(Style::default().fg(self.theme.border)).title("Output (↑/↓ to scroll)"))
+            .block(
+                Block::bordered()
+                    .border_style(Style::default().fg(self.theme.border))
+                    .title("Output (↑/↓ to scroll)"),
+            )
             .scroll((self.scroll_offset, 0))
             .wrap(Wrap { trim: false });
 
@@ -891,11 +919,13 @@ impl App {
         };
 
         frame.render_widget(
-            Paragraph::new(proc_lines).style(Style::default().bg(self.theme.bg).fg(self.theme.cyan)).block(
-                Block::bordered()
-                    .border_style(Style::default().bg(self.theme.bg).fg(self.theme.border))
-                    .title("Process Info"),
-            ),
+            Paragraph::new(proc_lines)
+                .style(Style::default().bg(self.theme.bg).fg(self.theme.cyan))
+                .block(
+                    Block::bordered()
+                        .border_style(Style::default().bg(self.theme.bg).fg(self.theme.border))
+                        .title("Process Info"),
+                ),
             processlayout[0],
         );
 
@@ -913,7 +943,11 @@ impl App {
 
         frame.render_widget(
             Paragraph::new(list_lines)
-                .block(Block::bordered().border_style(Style::default().bg(self.theme.bg).fg(self.theme.border)).title("Process List"))
+                .block(
+                    Block::bordered()
+                        .border_style(Style::default().bg(self.theme.bg).fg(self.theme.border))
+                        .title("Process List"),
+                )
                 .style(Style::default().bg(self.theme.bg).fg(self.theme.cyan)),
             processlayout[1],
         );
@@ -937,7 +971,8 @@ impl App {
                         Line::raw("  Run: watch <proc> -l"),
                     ])
                     .block(
-                        Block::bordered().border_style(Style::default().fg(self.theme.border))
+                        Block::bordered()
+                            .border_style(Style::default().fg(self.theme.border))
                             .title("Leak Delta [Tab for metrics]")
                             .fg(self.theme.healthy),
                     ),
@@ -994,7 +1029,12 @@ impl App {
 
                 frame.render_widget(
                     Chart::new(vec![dataset])
-                        .block(Block::bordered().border_style(Style::default().fg(self.theme.border)).title(title).fg(self.theme.healthy))
+                        .block(
+                            Block::bordered()
+                                .border_style(Style::default().fg(self.theme.border))
+                                .title(title)
+                                .fg(self.theme.healthy),
+                        )
                         .x_axis(
                             Axis::default()
                                 .title("Samples")
@@ -1034,7 +1074,8 @@ impl App {
 
             frame.render_widget(
                 Paragraph::new(heap_lines).block(
-                    Block::bordered().border_style(Style::default().fg(self.theme.border))
+                    Block::bordered()
+                        .border_style(Style::default().fg(self.theme.border))
                         .title(match self.heap_view_mode {
                             HeapViewMode::Metrics => "Heap View [Tab for table]",
                             HeapViewMode::Allocations => "Heap View [Tab for metrics]",
@@ -1092,7 +1133,9 @@ impl App {
             InputMode::Editing => Line::from(vec![
                 Span::styled(
                     " INSERT ",
-                    Style::default().fg(self.theme.bg).bg(self.theme.growth_warning),
+                    Style::default()
+                        .fg(self.theme.bg)
+                        .bg(self.theme.growth_warning),
                 ),
                 Span::raw("  try: "),
                 Span::styled("scan notepad.exe -a", Style::default().fg(self.theme.cyan)),
@@ -1122,7 +1165,11 @@ impl App {
     }
 }
 
-fn render_heap_metrics(snap: &HeapSnapshot, width: usize, theme: &crate::ui::theme::Theme) -> Vec<Line<'static>> {
+fn render_heap_metrics(
+    snap: &HeapSnapshot,
+    width: usize,
+    theme: &crate::ui::theme::Theme,
+) -> Vec<Line<'static>> {
     let mut lines = vec![];
     let bar_w = (width as usize).saturating_sub(20);
 
@@ -1556,31 +1603,46 @@ mod tests {
     #[test]
     fn test_compute_badge_styles() {
         let mut app = make_app();
-        
+
         // No leaks
         assert!(app.compute_badge().is_none());
-        
+
         // Healthy (Net <= 0)
-        app.leak_deltas.push(LeakDelta { allocated_bytes: 1000, freed_bytes: 1000 });
-        app.leak_deltas.push(LeakDelta { allocated_bytes: 1000, freed_bytes: 2000 });
+        app.leak_deltas.push(LeakDelta {
+            allocated_bytes: 1000,
+            freed_bytes: 1000,
+        });
+        app.leak_deltas.push(LeakDelta {
+            allocated_bytes: 1000,
+            freed_bytes: 2000,
+        });
         let badge = app.compute_badge().unwrap();
         assert!(badge.0.contains("HEALTHY"));
         assert_eq!(badge.1.fg.unwrap(), app.theme.healthy);
-        
+
         // Yellow Warning (> 2 MB/s)
-        app.leak_deltas.push(LeakDelta { allocated_bytes: 5 * 1024 * 1024, freed_bytes: 0 });
+        app.leak_deltas.push(LeakDelta {
+            allocated_bytes: 5 * 1024 * 1024,
+            freed_bytes: 0,
+        });
         let badge = app.compute_badge().unwrap();
         assert!(badge.0.contains("CAUTION"));
         assert_eq!(badge.1.fg.unwrap(), app.theme.growth_warning);
 
         // Red Warning (> 20 MB/s)
-        app.leak_deltas.push(LeakDelta { allocated_bytes: 50 * 1024 * 1024, freed_bytes: 0 });
+        app.leak_deltas.push(LeakDelta {
+            allocated_bytes: 50 * 1024 * 1024,
+            freed_bytes: 0,
+        });
         let badge = app.compute_badge().unwrap();
         assert!(badge.0.contains("WARNING"));
         assert_eq!(badge.1.fg.unwrap(), app.theme.growth_critical);
-        
+
         // Red Critical (> 100 MB/s)
-        app.leak_deltas.push(LeakDelta { allocated_bytes: 150 * 1024 * 1024, freed_bytes: 0 });
+        app.leak_deltas.push(LeakDelta {
+            allocated_bytes: 150 * 1024 * 1024,
+            freed_bytes: 0,
+        });
         let badge = app.compute_badge().unwrap();
         assert!(badge.0.contains("CRITICAL"));
         assert_eq!(badge.1.fg.unwrap(), app.theme.growth_critical);

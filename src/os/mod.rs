@@ -21,9 +21,15 @@ pub struct MacMemory;
 
 #[cfg(target_os = "macos")]
 impl MemoryProvider for MacMemory {
-    fn walk_regions(&self, _pid: u32) -> Vec<Region> { vec![] }
-    fn walk_heap(&self, _pid: u32) -> Vec<HeapBlock> { vec![] }
-    fn list_modules(&self, _pid: u32, _flag: String) -> Vec<ModuleInfo> { vec![] }
+    fn walk_regions(&self, _pid: u32) -> Vec<Region> {
+        vec![]
+    }
+    fn walk_heap(&self, _pid: u32) -> Vec<HeapBlock> {
+        vec![]
+    }
+    fn list_modules(&self, _pid: u32, _flag: String) -> Vec<ModuleInfo> {
+        vec![]
+    }
 }
 
 #[cfg(target_os = "macos")]

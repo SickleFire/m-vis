@@ -43,7 +43,7 @@ impl ThemeKind {
             Self::Light => Theme {
                 text: Color::Black,
                 bg: Color::White,
-                healthy: Color::Rgb(0, 100, 0), // Dark green
+                healthy: Color::Rgb(0, 100, 0),          // Dark green
                 growth_warning: Color::Rgb(200, 100, 0), // Dark orange
                 growth_critical: Color::Red,
                 border: Color::DarkGray,
@@ -77,7 +77,7 @@ impl ThemeKind {
                 highlight_fg: Color::White,
                 cyan: Color::LightCyan,
                 magenta: Color::Rgb(255, 215, 0), // Gold
-                blue: Color::Rgb(0, 114, 178), // Safe Blue
+                blue: Color::Rgb(0, 114, 178),    // Safe Blue
             },
         }
     }
@@ -106,25 +106,22 @@ mod tests {
     fn test_parse_theme() {
         assert_eq!(ThemeKind::parse("dark"), Some(ThemeKind::Dark));
         assert_eq!(ThemeKind::parse("LiGht"), Some(ThemeKind::Light));
-        assert_eq!(ThemeKind::parse("deuteranopia"), Some(ThemeKind::Deuteranopia));
+        assert_eq!(
+            ThemeKind::parse("deuteranopia"),
+            Some(ThemeKind::Deuteranopia)
+        );
         assert_eq!(ThemeKind::parse("protanopia"), Some(ThemeKind::Protanopia));
         assert_eq!(ThemeKind::parse("invalid"), None);
     }
 
     #[test]
     fn test_deuteranopia_theme_colors() {
-        assert_eq!(
-            ThemeKind::Deuteranopia.theme().growth_critical,
-            Color::Blue
-        );
+        assert_eq!(ThemeKind::Deuteranopia.theme().growth_critical, Color::Blue);
         assert_eq!(
             ThemeKind::Deuteranopia.theme().growth_warning,
             Color::Yellow
         );
-        assert_eq!(
-            ThemeKind::Deuteranopia.theme().healthy,
-            Color::White
-        );
+        assert_eq!(ThemeKind::Deuteranopia.theme().healthy, Color::White);
     }
 
     #[test]
@@ -137,9 +134,6 @@ mod tests {
             ThemeKind::Protanopia.theme().growth_warning,
             Color::Rgb(255, 215, 0)
         );
-        assert_eq!(
-            ThemeKind::Protanopia.theme().healthy,
-            Color::White
-        );
+        assert_eq!(ThemeKind::Protanopia.theme().healthy, Color::White);
     }
 }

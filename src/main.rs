@@ -46,7 +46,10 @@ fn run() -> Result<(), String> {
             if let Some(t) = mvis::ui::theme::ThemeKind::parse(&args[pos + 1]) {
                 theme_kind = t;
             } else {
-                eprintln!("warning: unknown theme '{}', falling back to default", args[pos + 1]);
+                eprintln!(
+                    "warning: unknown theme '{}', falling back to default",
+                    args[pos + 1]
+                );
             }
             args.remove(pos);
             args.remove(pos);
@@ -280,7 +283,10 @@ fn print_help_all() {
     println!("  {:<14} {}", "version", "Show version");
     println!();
     println!("Options:");
-    println!("  {:<14} {}", "--theme <name>", "Set UI theme (dark, light, deuteranopia, protanopia)");
+    println!(
+        "  {:<14} {}",
+        "--theme <name>", "Set UI theme (dark, light, deuteranopia, protanopia)"
+    );
     println!();
     println!("Theme precedence:");
     println!("  1. --theme flag");
