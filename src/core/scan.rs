@@ -395,7 +395,7 @@ fn classify(regions: &[Region]) -> Vec<&str> {
             }
         } else if regions[i].protect == NoAccess {
             labels[i] = "stack-guard";
-            
+
             // on macOS, stacks grow down but iteration goes up, so the live stack is before the NoAccess guard.
             if let Some(j) = i.checked_sub(1) {
                 if regions[j].kind == Private && regions[j].protect == ReadWrite {

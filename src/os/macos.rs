@@ -7,7 +7,7 @@ use mach2::port::{mach_port_name_t, mach_port_t};
 use mach2::traps::mach_task_self;
 use mach2::vm::mach_vm_region;
 use mach2::vm_prot::{VM_PROT_EXECUTE, VM_PROT_READ, VM_PROT_WRITE};
-use mach2::vm_region::{vm_region_basic_info_64, vm_region_info_t, VM_REGION_BASIC_INFO_64};
+use mach2::vm_region::{VM_REGION_BASIC_INFO_64, vm_region_basic_info_64, vm_region_info_t};
 use mach2::vm_types::natural_t;
 use std::collections::HashSet;
 use std::mem;
@@ -61,9 +61,9 @@ impl MemoryProvider for MacMemory {
             let mut size: mach2::vm_types::mach_vm_size_t = 0;
             let mut info: vm_region_basic_info_64 = unsafe { mem::zeroed() };
             // FIX: use natural_t (u32) as the unit, not i32
-            let mut info_count =
-                (mem::size_of::<vm_region_basic_info_64>() / mem::size_of::<natural_t>())
-                    as mach2::message::mach_msg_type_number_t;
+            let mut info_count = (mem::size_of::<vm_region_basic_info_64>()
+                / mem::size_of::<natural_t>())
+                as mach2::message::mach_msg_type_number_t;
             let mut object_name: mach_port_t = 0;
 
             let res = unsafe {
