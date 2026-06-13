@@ -15,6 +15,7 @@ use mvis::os;
 use mvis::os::MemoryProvider;
 use mvis::ui::commands::process_is_visible;
 use mvis::ui::tui::tui_main;
+use mvis::utils::error::AppError;
 use mvis::utils::formatting::format_bytes;
 use std::env;
 
@@ -28,8 +29,7 @@ fn main() {
 /// Entry point for all CLI commands.
 ///
 /// Parses arguments and dispatches to the appropriate handler.
-/// Returns `Err(String)` with a human-readable message on failure.
-fn run() -> Result<(), String> {
+fn run() -> Result<(), AppError> {
     let mut args: Vec<String> = env::args().collect();
 
     // Determine theme precedence: --theme flag -> MVIS_THEME -> dark (default)
@@ -60,7 +60,7 @@ fn run() -> Result<(), String> {
     }
 
     if args.len() <= 1 {
-        mvis::ui::tui::tui_main(theme_kind).map_err(|e| e.to_string())?;
+        mvis::ui::tui::tui_main(theme_kind).map_err(|e| AppError::Other(e.to_string()))?;
         return Ok(());
     }
 
@@ -192,14 +192,14 @@ fn run() -> Result<(), String> {
                         println!("  0x{:x}  {}", frame.instruction_pointer, frame.symbol);
                     }
                 }
-                Err(e) => return Err(e),
+                Err(e) => return Err(AppError::Other(e)),
             }
         }
         "tui" => {
             let _ = tui_main(theme_kind);
         }
         _ => {
-            return Err(format!("unknown command '{}' — run 'mvis --help'", command));
+            return Err(AppError::UnknownCommand(command.to_string()));
         }
     }
     Ok(())
@@ -252,20 +252,23 @@ fn find_pid(name: String) -> Result<u32, String> {
 ///
 /// # Returns
 /// * `Ok(&str)` - The argument value
-/// * `Err(String)` - If the argument is missing, with a helpful message
-fn get_arg<'a>(args: &'a [String], index: usize, name: &str) -> Result<&'a str, String> {
+/// * `Err(AppError)` - If the argument is missing, with a helpful message
+fn get_arg<'a>(args: &'a [String], index: usize, name: &str) -> Result<&'a str, AppError> {
     args.get(index)
         .map(|s| s.as_str())
-        .ok_or_else(|| format!("missing argument: {}", name))
+        .ok_or_else(|| AppError::MissingArg(name.to_string()))
 }
 
-fn parse_positive_u64_arg(args: &[String], index: usize, name: &str) -> Result<u64, String> {
+fn parse_positive_u64_arg(args: &[String], index: usize, name: &str) -> Result<u64, AppError> {
     let value = get_arg(args, index, name)?;
     let parsed = value
         .parse::<u64>()
-        .map_err(|_| format!("{} must be a positive number", name))?;
+        .map_err(|_| AppError::InvalidArg(format!("{} must be a positive number", name)))?;
     if parsed == 0 {
-        return Err(format!("{} must be greater than 0", name));
+        return Err(AppError::InvalidArg(format!(
+            "{} must be greater than 0",
+            name
+        )));
     }
     Ok(parsed)
 }
@@ -399,6 +402,7 @@ fn print_help_wintrace() {
 #[cfg(test)]
 mod tests {
     use super::{find_pid, get_arg, parse_positive_u64_arg};
+    use mvis::utils::error::AppError;
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -417,7 +421,7 @@ mod tests {
 
         assert_eq!(
             get_arg(&args, 2, "process name"),
-            Err("missing argument: process name".to_string())
+            Err(AppError::MissingArg("process name".to_string()))
         );
     }
 
@@ -434,7 +438,9 @@ mod tests {
 
         assert_eq!(
             parse_positive_u64_arg(&args, 3, "interval"),
-            Err("interval must be greater than 0".to_string())
+            Err(AppError::InvalidArg(
+                "interval must be greater than 0".to_string()
+            ))
         );
     }
 
@@ -444,7 +450,9 @@ mod tests {
 
         assert_eq!(
             parse_positive_u64_arg(&args, 3, "interval"),
-            Err("interval must be a positive number".to_string())
+            Err(AppError::InvalidArg(
+                "interval must be a positive number".to_string()
+            ))
         );
     }
 
@@ -454,7 +462,7 @@ mod tests {
 
         assert_eq!(
             parse_positive_u64_arg(&args, 3, "interval"),
-            Err("missing argument: interval".to_string())
+            Err(AppError::MissingArg("interval".to_string()))
         );
     }
 
@@ -464,7 +472,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("process 'mvis_process_that_should_not_exist_12345' not found".to_string())
+            Err(AppError::ProcessNotFound(
+                "mvis_process_that_should_not_exist_12345".to_string()
+            ))
         );
     }
 }
