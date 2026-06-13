@@ -91,7 +91,15 @@ impl MemoryProvider for MacMemory {
                 _ => RegionProtect::Other,
             };
 
-            let name = self.get_region_name(pid, address as usize);
+            let mut name = self.get_region_name(pid, address as usize);
+
+            if name.is_empty() && info.shared != 0 {
+                if info.protection & VM_PROT_EXECUTE != 0 {
+                    name = "dyld_shared_cache".to_string();
+                } else {
+                    name = "shared_memory".to_string();
+                }
+            }
 
             let refined_kind = if !name.is_empty() {
                 if name.contains(".dylib") || name.contains("Frameworks") || name.contains("dyld") {
@@ -164,7 +172,9 @@ impl MemoryProvider for MacMemory {
                 && (r.kind == RegionKind::Image
                     || r.name.ends_with(".dylib")
                     || r.name.ends_with(".bundle")
-                    || r.name.contains("dyld_shared_cache"))
+                    || r.name.contains("dyld_shared_cache")
+                    || r.name.contains("Frameworks")
+                    || r.name.contains("dyld"))
             {
                 if seen.insert(r.name.clone()) {
                     let path = Path::new(&r.name);
