@@ -20,8 +20,8 @@ pub fn render_bar(regions: &[Region], labels: &[&str], width: usize) {
             "image" => format!("\x1b[34m{}\x1b[0m", "I".repeat(chars)),
             _ if mbi.state == Free => format!("\x1b[90m{}\x1b[0m", ".".repeat(chars)),
             _ if mbi.kind == Image => format!("\x1b[34m{}\x1b[0m", "I".repeat(chars)),
-            _ if mbi.kind == Mapped => format!("\x1b[32m{}\x1b[0m", "M".repeat(chars)),
             _ if mbi.protect == Execute => format!("\x1b[33m{}\x1b[0m", "X".repeat(chars)),
+            _ if mbi.kind == Mapped => format!("\x1b[32m{}\x1b[0m", "M".repeat(chars)),
             _ if mbi.state == Reserved => format!("\x1b[90m{}\x1b[0m", "r".repeat(chars)),
             _ => format!("\x1b[90m{}\x1b[0m", "?".repeat(chars)),
         };
@@ -51,8 +51,8 @@ pub fn render_bar_tui(regions: &[Region], labels: &[&str], width: usize) -> Line
             "image" => ("I", Color::Blue),
             _ if mbi.state == Free => (".", Color::DarkGray),
             _ if mbi.kind == Image => ("I", Color::Blue),
-            _ if mbi.kind == Mapped => ("M", Color::Green),
             _ if mbi.protect == Execute => ("X", Color::Yellow),
+            _ if mbi.kind == Mapped => ("M", Color::Green),
             _ if mbi.state == Reserved => ("r", Color::DarkGray),
             _ => ("?", Color::DarkGray),
         };

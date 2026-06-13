@@ -25,16 +25,16 @@ use crate::types::{
 pub struct WindowsMemory;
 
 impl MemoryProvider for WindowsMemory {
-    fn walk_regions(&self, pid: u32) -> Vec<Region> {
-        walk_regions(pid)
+    fn walk_regions(&self, pid: u32) -> Result<Vec<Region>, String> {
+        Ok(walk_regions(pid))
     }
 
-    fn walk_heap(&self, pid: u32) -> Vec<HeapBlock> {
-        walk_heap(pid)
+    fn walk_heap(&self, pid: u32) -> Result<Vec<HeapBlock>, String> {
+        Ok(walk_heap(pid))
     }
 
-    fn list_modules(&self, pid: u32, flag: String) -> Vec<ModuleInfo> {
-        list_modules(pid, flag)
+    fn list_modules(&self, pid: u32, flag: String) -> Result<Vec<ModuleInfo>, String> {
+        Ok(list_modules(pid, flag))
     }
 }
 

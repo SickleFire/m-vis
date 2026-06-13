@@ -27,7 +27,17 @@ pub struct HeapDiff {
 /// * `output` - Optional file path for JSON output
 pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<String>) {
     let mem = os::provider();
-    let regions = mem.walk_regions(pid);
+    let regions = match mem.walk_regions(pid) {
+        Ok(r) => r,
+        Err(e) => {
+            if json {
+                println!(r#"{{"error": "{}"}}"#, e);
+            } else {
+                eprintln!("Error scanning regions: {}", e);
+            }
+            return;
+        }
+    };
     if !json {
         // legend
         println!(
@@ -40,7 +50,17 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
     match mode.as_str() {
         "-h" => {
             //Heap Mode
-            let blocks = heap_mode(pid);
+            let blocks = match heap_mode(pid) {
+                Ok(b) => b,
+                Err(e) => {
+                    if json {
+                        println!(r#"{{"error": "{}"}}"#, e);
+                    } else {
+                        eprintln!("Error scanning heap: {}", e);
+                    }
+                    return;
+                }
+            };
             let used: Vec<_> = blocks.par_iter().filter(|b| !b.is_free).collect();
             let free: Vec<_> = blocks.par_iter().filter(|b| b.is_free).collect();
 
@@ -179,9 +199,17 @@ pub fn scan_with_modes_tui(
 ) -> Vec<Line<'static>> {
     let mem = os::provider();
     let mut output: Vec<Line> = vec![];
-    let regions = mem.walk_regions(pid);
+    let regions = match mem.walk_regions(pid) {
+        Ok(r) => r,
+        Err(e) => {
+            return vec![Line::from(vec![Span::styled(
+                format!("Error scanning regions: {}", e),
+                Style::default().fg(Color::Red),
+            )])];
+        }
+    };
 
-    if !json && !(mode != "-h" || mode != "-v") {
+    if !json && mode == "-a" {
         output.push(Line::from(vec![
             Span::styled("I", Style::default().fg(Color::Blue)),
             Span::raw(" image  "),
@@ -202,7 +230,15 @@ pub fn scan_with_modes_tui(
 
     match mode.as_str() {
         "-h" => {
-            let blocks = heap_mode(pid);
+            let blocks = match heap_mode(pid) {
+                Ok(b) => b,
+                Err(e) => {
+                    return vec![Line::from(vec![Span::styled(
+                        format!("Error scanning heap: {}", e),
+                        Style::default().fg(Color::Red),
+                    )])];
+                }
+            };
             let used: Vec<_> = blocks.par_iter().filter(|b| !b.is_free).collect();
             let free: Vec<_> = blocks.par_iter().filter(|b| b.is_free).collect();
             let used_bytes: usize = used.par_iter().map(|b| b.size).sum();
@@ -334,10 +370,9 @@ pub fn scan_with_modes_tui(
 }
 
 /// Returns all heap blocks (used and free) for the process with the given `pid`.
-pub fn heap_mode(pid: u32) -> Vec<HeapBlock> {
+pub fn heap_mode(pid: u32) -> Result<Vec<HeapBlock>, String> {
     let mem = os::provider();
-    let heaps = mem.walk_heap(pid);
-    heaps
+    mem.walk_heap(pid)
 }
 
 fn classify(regions: &[Region]) -> Vec<&str> {
@@ -358,13 +393,24 @@ fn classify(regions: &[Region]) -> Vec<&str> {
                     labels[i + 1] = "stack-live";
                 }
             }
+        } else if regions[i].protect == NoAccess {
+            labels[i] = "stack-guard";
+
+            // on macOS, stacks grow down but iteration goes up, so the live stack is before the NoAccess guard.
+            if let Some(j) = i.checked_sub(1) {
+                if regions[j].kind == Private && regions[j].protect == ReadWrite {
+                    labels[j] = "stack-live";
+                }
+            }
         }
     }
 
-    // pass 2 — only unlabeled private+committed regions are heap
+    // pass 2 — only unlabeled private+committed non-executable regions are heap
     for i in 0..regions.len() {
         if labels[i] == "?" && regions[i].state == Committed && regions[i].kind == Private {
-            labels[i] = "heap";
+            if regions[i].protect != Execute {
+                labels[i] = "heap";
+            }
         }
     }
 
@@ -386,7 +432,6 @@ fn classify(regions: &[Region]) -> Vec<&str> {
             "[vvar]" => "mapped",
             "[vdso]" => "image",
             name if name.contains(".so") => "image",
-            name if !name.is_empty() => "image",
             _ => match regions[i].kind {
                 Image => "image",
                 Mapped => "mapped",
@@ -443,10 +488,10 @@ pub fn diff_freed_memory(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usiz
 
 /// Takes two heap snapshots separated by `interval` seconds and prints a leak diagnosis to stdout.
 pub fn leak_command(pid: u32, interval: u64) {
-    let snapshot1 = heap_mode(pid);
+    let snapshot1 = heap_mode(pid).unwrap_or_default();
     let dur = Duration::new(interval, 0);
     sleep(dur);
-    let snapshot2 = heap_mode(pid);
+    let snapshot2 = heap_mode(pid).unwrap_or_default();
     let growth = diff_heap_size(&snapshot1, &snapshot2);
     let freed = diff_freed_memory(&snapshot1, &snapshot2);
     let new_freed_memory: usize = freed.iter().map(|(_, size)| size).sum();
@@ -471,10 +516,10 @@ pub fn leak_command(pid: u32, interval: u64) {
 pub fn leak_command_tui(pid: u32, interval: u64) -> (Vec<Line<'static>>, LeakDelta) {
     use crate::core::delta::LeakDelta;
     let mut output: Vec<Line> = vec![];
-    let snapshot1 = heap_mode(pid);
+    let snapshot1 = heap_mode(pid).unwrap_or_default();
     let dur = Duration::new(interval, 0);
     sleep(dur);
-    let snapshot2 = heap_mode(pid);
+    let snapshot2 = heap_mode(pid).unwrap_or_default();
     let growth = diff_heap_size(&snapshot1, &snapshot2);
     let freed = diff_freed_memory(&snapshot1, &snapshot2);
     let new_freed_memory: usize = freed.iter().map(|(_, size)| size).sum();
@@ -504,10 +549,10 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> (Vec<Line<'static>>, LeakDel
 
 /// Runs `samples` heap snapshots, each `interval` seconds apart, printing new allocations to stdout.
 pub fn leak_m_command(pid: u32, interval: u64, samples: u64) {
-    let mut prev = heap_mode(pid);
+    let mut prev = heap_mode(pid).unwrap_or_default();
     for i in 0..samples {
         sleep(Duration::new(interval, 0));
-        let next = heap_mode(pid);
+        let next = heap_mode(pid).unwrap_or_default();
         let results = diff_snapshots(&prev, &next);
         let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
 
@@ -531,13 +576,13 @@ use std::sync::mpsc::Sender;
 
 /// TUI variant of [`leak_m_command`]: sends result lines to `tx` as each sample is taken.
 pub fn leak_m_command_tui(pid: u32, interval: u64, samples: u64, tx: Sender<Line<'static>>) {
-    let mut prev = heap_mode(pid);
+    let mut prev = heap_mode(pid).unwrap_or_default();
 
     for i in 0..samples {
         tx.send(Line::raw(format!("waiting {}s...", interval))).ok();
         sleep(Duration::new(interval, 0));
 
-        let next = heap_mode(pid);
+        let next = heap_mode(pid).unwrap_or_default();
         let results = diff_snapshots(&prev, &next);
         let new_bytes: usize = results.iter().map(|(_, size)| size).sum();
 

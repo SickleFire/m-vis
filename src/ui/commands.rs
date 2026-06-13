@@ -156,7 +156,7 @@ pub fn modules(args: Vec<&str>) -> Result<Vec<String>, String> {
         flag = args[2].to_string();
     }
     let mut output: Vec<String> = vec![];
-    let results = mem.list_modules(pid, flag);
+    let results = mem.list_modules(pid, flag).unwrap_or_default();
     output = results
         .into_iter()
         .map(|result| format!("{}: {:?}", result.name, result.status))
@@ -234,12 +234,12 @@ fn get_heap_blocks(pid: u32, _granular: bool) -> Vec<HeapBlock> {
         if _granular {
             crate::os::walk_heap_granular(pid)
         } else {
-            mem.walk_heap(pid)
+            mem.walk_heap(pid).unwrap_or_default()
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        mem.walk_heap(pid)
+        mem.walk_heap(pid).unwrap_or_default()
     }
 }

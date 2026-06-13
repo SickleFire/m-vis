@@ -113,9 +113,10 @@ fn run() -> Result<(), AppError> {
         "modules" => {
             let name = get_arg(&args, 2, "process name")?;
             let pid = find_pid(name.to_string())?;
-            let flag = get_arg(&args, 3, "flag (-t)")?;
+            let _empty = String::new();
+            let flag = args.get(3).map(|s| s.as_str()).unwrap_or("").to_string();
 
-            let modules = mem.list_modules(pid, flag.to_string());
+            let modules = mem.list_modules(pid, flag.to_string()).unwrap_or_default();
             println!(
                 "{:<18} {:<10} {:<10} {}",
                 "ADDRESS", "SIZE", "STATUS", "NAME"
@@ -183,7 +184,7 @@ fn run() -> Result<(), AppError> {
         "wintrace" => {
             let queryp = get_arg(&args, 2, "process name")?;
             let pid = find_pid(queryp.to_string())?;
-            let regions = mem.walk_regions(pid);
+            let regions = mem.walk_regions(pid).unwrap_or_default();
             match mvis::core::stack_trace::StackTrace::capture(pid, &regions) {
                 Ok(trace) => {
                     println!("stack trace for {} (pid: {})", queryp, pid);
@@ -470,12 +471,12 @@ mod tests {
 
     #[test]
     fn find_pid_reports_missing_process() {
-        let result = find_pid("mvis_process_that_should_not_exist_12345".to_string());
+        let result = find_pid("zzzz_does_not_exist_9999_zzzz".to_string());
 
         assert_eq!(
             result,
             Err(AppError::ProcessNotFound(
-                "mvis_process_that_should_not_exist_12345".to_string()
+                "zzzz_does_not_exist_9999_zzzz".to_string()
             ))
         );
     }

@@ -32,7 +32,21 @@ Early but functional. Core scanning and leak detection work on both platforms. S
 -  **DLL Tracking**: Monitor and list all DLLs loaded by a target.
 -  **Memory Leak Detection**: Identify and monitor processes with growing, unreleased allocations.
 -  **Leak Delta Chart**: mvis includes a real-time leak delta chart that visualizes memory allocation trends over time directly in the TUI.
--  **Supported OS**: Windows, Linux
+-  **Supported OS**: Windows, Linux, macOS
+
+## macOS Code Signing
+
+On macOS, `mvis` requires the `com.apple.security.cs.debugger` entitlement to inspect other processes due to Hardened Runtime restrictions. Even with `sudo`, inspecting third-party apps requires this entitlement.
+
+To build and run `mvis` on macOS:
+```bash
+# We provide a Makefile that automatically builds and signs the binary ad-hoc
+make build
+
+# To run a scan using the Makefile helper:
+make run-scan PROCESS=language_server_macos_arm MODE=-a
+```
+*Note: Apple platform apps (Safari, Finder) and some Hardened Runtime apps (WhatsApp) will remain protected by System Integrity Protection (SIP) even with this entitlement.*
 
 ## Usage
 ```powershell

@@ -59,7 +59,10 @@ impl StackTrace {
         #[cfg(target_os = "windows")]
         return windows::capture(_pid, _regions);
 
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        #[cfg(target_os = "macos")]
+        return macos::capture(_pid, _regions);
+
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
         Err("stack trace not supported on this platform".into())
     }
 }
@@ -474,6 +477,57 @@ mod windows {
             }
         }
         threads
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use super::{StackFrame, StackTrace};
+
+    /// Captures the stack trace of the CURRENT process using the `backtrace` crate.
+    /// Note: macOS SIP and lack of cross-process unwinding in `backtrace` prevents
+    /// unwinding arbitrary PIDs easily. This will only unwind the `mvis` process itself.
+    pub fn capture(pid: u32, regions: &[crate::types::Region]) -> Result<StackTrace, String> {
+        let current_pid = std::process::id();
+        if pid != current_pid {
+            return Err(format!(
+                "macOS stack trace via `backtrace` only supports the current process (pid {}). \
+                 Cross-process unwinding requires task_for_pid + thread_act APIs. \
+                 Requested pid {} cannot be traced.",
+                current_pid, pid
+            ));
+        }
+
+        let mut frames = Vec::new();
+
+        backtrace::trace(|frame| {
+            let ip = frame.ip() as usize;
+            let mut symbol_name = String::new();
+
+            backtrace::resolve(frame.ip(), |sym| {
+                if let Some(name) = sym.name() {
+                    symbol_name = name.to_string();
+                }
+            });
+
+            if symbol_name.is_empty() {
+                symbol_name = super::resolve(ip, regions);
+            }
+
+            frames.push(StackFrame {
+                instruction_pointer: ip,
+                base_pointer: 0,
+                return_address: 0,
+                symbol: symbol_name,
+            });
+            true // keep going
+        });
+
+        Ok(StackTrace {
+            pid,
+            frames,
+            symbol_warning: None,
+        })
     }
 }
 
