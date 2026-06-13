@@ -361,10 +361,12 @@ fn classify(regions: &[Region]) -> Vec<&str> {
         }
     }
 
-    // pass 2 — only unlabeled private+committed regions are heap
+    // pass 2 — only unlabeled private+committed non-executable regions are heap
     for i in 0..regions.len() {
         if labels[i] == "?" && regions[i].state == Committed && regions[i].kind == Private {
-            labels[i] = "heap";
+            if regions[i].protect != Execute {
+                labels[i] = "heap";
+            }
         }
     }
 
