@@ -180,21 +180,11 @@ fn run() -> Result<(), AppError> {
         "version" | "--version" | "-v" => {
             println!("{}", mvis::VERSION);
         }
-        #[cfg(target_os = "windows")]
-        "wintrace" => {
+        "trace" => {
             let queryp = get_arg(&args, 2, "process name")?;
             let pid = find_pid(queryp.to_string())?;
             let regions = mem.walk_regions(pid).unwrap_or_default();
-            match mvis::core::stack_trace::StackTrace::capture(pid, &regions) {
-                Ok(trace) => {
-                    println!("stack trace for {} (pid: {})", queryp, pid);
-                    println!("{}", "-".repeat(60));
-                    for frame in &trace.frames {
-                        println!("  0x{:x}  {}", frame.instruction_pointer, frame.symbol);
-                    }
-                }
-                Err(e) => return Err(AppError::Other(e)),
-            }
+            mvis::core::scan::stack_trace(pid, &regions);
         }
         "tui" => {
             let _ = tui_main(theme_kind);

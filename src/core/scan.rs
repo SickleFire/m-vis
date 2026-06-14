@@ -611,6 +611,30 @@ pub fn leak_m_command_tui(pid: u32, interval: u64, samples: u64, tx: Sender<Line
     tx.send(Line::raw("leak-m complete")).ok();
 }
 
+pub fn stack_trace(pid: u32, regions: &[Region]) {
+    use crate::core::stack_trace::StackTrace;
+
+    let _trace = match StackTrace::capture(pid, &regions) {
+        Ok(t) => {
+            eprintln!("[dbg] stack captured: {} frames", t.frames.len());
+            t
+        }
+        Err(e) => {
+            eprintln!("[dbg] stack capture failed: {}", e);
+            return;
+        }
+    };
+
+    let t = _trace;
+    println!("\ncall stack at time of snapshot:");
+    if let Some(warning) = &t.symbol_warning {
+        println!("warning: {}", warning);
+    }
+    for (i, frame) in t.frames.iter().enumerate() {
+        println!("  #{:<2} {}", i, frame.symbol);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
