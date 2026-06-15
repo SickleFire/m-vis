@@ -16,13 +16,43 @@ Our design philosophy is built around simplicity and accessibility because **We 
 
 **"One command. All platforms. No configuration hell."**
 
-## Status
-Early but functional. Core scanning and leak detection work on both platforms. See the roadmap below for what's coming.
+---
 
-### New TUI
+## 🚀 Quick Start
+
+### 1. Installation
+The fastest way to get started is downloading a pre-built binary from the [Releases](https://github.com/SickleFire/m-vis/releases) page.
+If you have Rust installed, you can build from source:
+```bash
+git clone https://github.com/SickleFire/m-vis
+cd mvis
+cargo build --release
+# Your binary is at target/release/mvis
+```
+
+### 2. Enter the TUI
+Experience the interactive memory dashboard immediately:
+```bash
+mvis tui
+```
 <img width="1919" height="986" alt="Screenshot 2026-06-05 173344" src="https://github.com/user-attachments/assets/31d98a81-a951-486c-a51e-9abc7b198406" />
 
-<img width="1919" height="980" alt="Screenshot 2026-06-05 173607" src="https://github.com/user-attachments/assets/fea2c2f9-8f5d-48fb-b13f-21b6b30656e3" />
+### 3. Basic CLI Commands
+```bash
+# Find a target process
+mvis list
+
+# Scan process memory maps (replace 'notepad' with your target)
+mvis scan notepad -a
+
+# Monitor a process for memory leaks (10 second interval)
+mvis leak notepad 10
+```
+
+---
+
+## Status
+Early but functional. Core scanning and leak detection work on all platforms. See the roadmap below for what's coming.
 
 ---
 
