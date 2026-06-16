@@ -38,6 +38,7 @@ cargo test
 - Add documentation comments (`///`) to any public functions you add
 - Describe what your PR does and why in the description
 - Do Cargo fmt
+- Only send pull requests to dev branch
 
 ---
 
