@@ -532,6 +532,9 @@ impl App {
                 self.push_message(
                     "  stopwatch                 stop the current watch process".into(),
                 );
+                self.push_message("  baseline <proc>".into());
+                self.push_message("  diff     <proc>".into());
+                self.push_message("  clearbaseline".into());
                 self.push_message("  list                      list processes".into());
                 self.push_message("  clear                     clear output history".into());
             }
