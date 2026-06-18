@@ -1,4 +1,14 @@
 # Changelog
+## [0.4.0-rc1] - 2026-06-20
+### Added
+- MacOS support
+- Leak Delta Chart
+- Help Subcommand
+- Criterion Benches
+- (TUI) themes
+- (TUI) diff commands
+- (CLI) process name fuzzy matchable
+
 ## [0.3.0] - 2026-05-31
 ### Added
 - (TUI) modules command
