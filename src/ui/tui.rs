@@ -13,7 +13,7 @@ use crate::core::delta::{DiagnosticSeverity, LeakDelta};
 use crate::types::{HeapBlock, RegionProtect};
 use crate::ui::commands::ScanResult;
 use crate::ui::theme::{Theme, ThemeKind};
-use crate::utils::formatting::format_bytes;
+use crate::utils::formatting::{format_bytes, format_bytes_i64};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -686,7 +686,7 @@ impl App {
                         };
                         let net_sign = if net > 0 { "+" } else { "" };
                         self.push_line(Line::from(Span::styled(
-                            format!("net growth: {}{}", net_sign, format_bytes(net as u64)),
+                            format!("net growth: {}{}", net_sign, format_bytes_i64(net)),
                             Style::default().fg(net_color),
                         )));
 

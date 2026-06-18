@@ -20,3 +20,25 @@ pub fn format_bytes(size: u64) -> String {
         format!("{} B", size)
     }
 }
+
+pub fn format_bytes_i64(size: i64) -> String {
+    let abs_size = size.abs() as f64;
+
+    let formatted = if abs_size >= TB as f64 {
+        format!("{:.2} TB", abs_size / TB as f64)
+    } else if abs_size >= GB as f64 {
+        format!("{:.2} GB", abs_size / GB as f64)
+    } else if abs_size >= MB as f64 {
+        format!("{:.2} MB", abs_size / MB as f64)
+    } else if abs_size >= KB as f64 {
+        format!("{:.2} KB", abs_size / KB as f64)
+    } else {
+        format!("{} B", abs_size as u64)
+    };
+
+    if size < 0 {
+        format!("-{}", formatted)
+    } else {
+        formatted
+    }
+}
