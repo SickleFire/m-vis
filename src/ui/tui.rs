@@ -14,6 +14,8 @@ use crate::types::{HeapBlock, RegionProtect};
 use crate::ui::commands::ScanResult;
 use crate::ui::theme::{Theme, ThemeKind};
 use crate::utils::formatting::format_bytes;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 enum AppEvent {
     DiffResult(Vec<HeapBlock>, ScanResult),
@@ -73,6 +75,7 @@ struct App {
     is_loading: bool,
     loading_msg: String,
     watch_stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    busy: std::sync::Arc<AtomicBool>,
     leak_deltas: Vec<LeakDelta>,
     theme: Theme,
 }
@@ -116,6 +119,7 @@ impl App {
             is_loading: false,
             loading_msg: String::new(),
             watch_stop: None,
+            busy: std::sync::Arc::new(AtomicBool::new(false)),
             leak_deltas: vec![],
             theme,
         };
@@ -368,6 +372,7 @@ impl App {
                 let proc = _proc.to_string();
                 let mode = _mode.to_string();
                 let tx = self.tx.clone();
+                let busy = self.busy.clone();
 
                 // build the command string to dispatch
                 let cmd = match mode.as_str() {
@@ -401,7 +406,35 @@ impl App {
                             break;
                         }
 
+                        busy.store(true, Ordering::Relaxed);
                         tx.send(AppEvent::RunCommand(cmd.clone())).ok();
+
+                        let mut waited_ms = 0u64;
+                        while busy.load(Ordering::Relaxed) {
+                            if stop.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            waited_ms += 50;
+
+                            // safety timeout — don't hang forever if something never completes
+                            if waited_ms > 30_000 {
+                                tx.send(AppEvent::Output(Line::raw(format!(
+                                    "watch: command timed out, continuing anyway"
+                                ))))
+                                .ok();
+                                break;
+                            }
+                        }
+
+                        if stop.load(Ordering::Relaxed) {
+                            tx.send(AppEvent::Output(Line::raw(format!(
+                                "watch stopped at iteration {}",
+                                i
+                            ))))
+                            .ok();
+                            break;
+                        }
 
                         std::thread::sleep(std::time::Duration::from_secs(2));
                         i += 1;
@@ -702,6 +735,7 @@ impl App {
                     AppEvent::ScanResult(result) => {
                         //Updates Heap View doesnt Differentiate between -h, -a or -v
                         self.is_loading = false;
+                        self.busy.store(false, Ordering::Relaxed);
                         self.current_proc = Some(result.pid.to_string());
                         self.current_pid = Some(result.pid);
                         self.current_memory_mb = Some(result.memory_mb);
@@ -732,6 +766,7 @@ impl App {
                     }
                     AppEvent::ScanError(e) => {
                         self.is_loading = false;
+                        self.busy.store(false, Ordering::Relaxed);
                         self.push_message(format!("error: {}", e));
                     }
                     AppEvent::Output(line) => {
@@ -739,9 +774,13 @@ impl App {
                     }
                     AppEvent::RunCommand(command) => {
                         self.dispatch(&command);
+                        if !self.is_loading {
+                            self.busy.store(false, Ordering::Relaxed);
+                        }
                     }
                     AppEvent::LeakResult(delta) => {
                         self.is_loading = false;
+                        self.busy.store(false, Ordering::Relaxed);
                         self.leak_deltas.push(delta);
                         if self.leak_deltas.len() > 30 {
                             self.leak_deltas.remove(0);
