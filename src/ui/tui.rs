@@ -1227,7 +1227,7 @@ fn render_heap_metrics(
 
     lines.push(Line::raw("── High-Level Metrics ──────────────────"));
     lines.push(Line::from(vec![
-        Span::raw(format!("Frag  {:.1}%    ", snap.fragmentation)),
+        Span::raw(format!("Frag  {:.0}%     ", snap.fragmentation)),
         Span::styled("█".repeat(frag_fill), Style::default().fg(frag_color)),
         Span::styled(
             "░".repeat(bar_w - frag_fill),
