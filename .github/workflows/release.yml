@@ -50,6 +50,10 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
+      - name: Sign binary (macOS)
+        if: matrix.os == 'macos-latest'
+        run: codesign --force --sign - --entitlements mvis.entitlements --timestamp=none target/${{ matrix.target }}/release/${{ matrix.binary }}
+
       - name: Package binary
         shell: bash
         run: |
