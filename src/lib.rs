@@ -1,3 +1,4 @@
+pub mod ci;
 pub mod core;
 pub mod os;
 pub mod types;
