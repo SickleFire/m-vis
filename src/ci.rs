@@ -185,6 +185,14 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
                     return Err(AppError::MissingArg("--spawn".into()));
                 }
             }
+            "--format" => {
+                //choose which kind of format json, csv, junit
+                todo!()
+            }
+            "--output" => {
+                //to write results
+                todo!()
+            }
             other => {
                 if target.is_none() {
                     target = Some(CiTarget::AttachName(other.to_string()));
