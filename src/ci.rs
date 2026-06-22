@@ -1,9 +1,10 @@
+use crate::core::scan::{diff_heap_size, heap_mode};
+use crate::export::FormatType;
 use crate::utils::error::AppError;
 use crate::utils::process::{FuzzyMatch, fuzzy_find_pid};
-use crate::core::scan::{heap_mode, diff_heap_size};
-use sysinfo::System;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
+use sysinfo::System;
 
 enum CiTarget {
     Spawn { command: String, args: Vec<String> },
@@ -16,6 +17,7 @@ struct CiArgs {
     max_memory: Option<u64>,
     leak_check: bool,
     duration: Option<Duration>,
+    format: Option<FormatType>,
 }
 
 pub fn ci_main(args: &[String]) -> i32 {
@@ -61,7 +63,7 @@ pub fn ci_main(args: &[String]) -> i32 {
             // Process exited natively
             break;
         }
-        
+
         // Wait, if it's our spawned child, check try_wait()
         if let Some(ref mut c) = child {
             if let Ok(Some(_)) = c.try_wait() {
@@ -74,7 +76,10 @@ pub fn ci_main(args: &[String]) -> i32 {
             if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
                 let current_mem = process.memory(); // memory in bytes
                 if current_mem > max_mem {
-                    eprintln!("error: memory limit exceeded. Max: {}, Current: {}", max_mem, current_mem);
+                    eprintln!(
+                        "error: memory limit exceeded. Max: {}, Current: {}",
+                        max_mem, current_mem
+                    );
                     exit_code = 2;
                     break;
                 }
@@ -136,13 +141,16 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
     let mut leak_check = false;
     let mut duration = None;
     let mut target = None;
-    
+    let mut format = None;
+
     let mut i = 2; // skip "mvis" and "ci"
     while i < args.len() {
         match args[i].as_str() {
             "--max-memory" => {
                 if i + 1 < args.len() {
-                    let val = args[i+1].parse::<u64>().map_err(|_| AppError::InvalidArg("invalid --max-memory".into()))?;
+                    let val = args[i + 1]
+                        .parse::<u64>()
+                        .map_err(|_| AppError::InvalidArg("invalid --max-memory".into()))?;
                     max_memory = Some(val);
                     i += 2;
                 } else {
@@ -155,7 +163,9 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
             }
             "--duration" => {
                 if i + 1 < args.len() {
-                    let val = args[i+1].parse::<u64>().map_err(|_| AppError::InvalidArg("invalid --duration".into()))?;
+                    let val = args[i + 1]
+                        .parse::<u64>()
+                        .map_err(|_| AppError::InvalidArg("invalid --duration".into()))?;
                     duration = Some(Duration::from_secs(val));
                     i += 2;
                 } else {
@@ -164,7 +174,9 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
             }
             "--pid" => {
                 if i + 1 < args.len() {
-                    let val = args[i+1].parse::<u32>().map_err(|_| AppError::InvalidArg("invalid --pid".into()))?;
+                    let val = args[i + 1]
+                        .parse::<u32>()
+                        .map_err(|_| AppError::InvalidArg("invalid --pid".into()))?;
                     target = Some(CiTarget::AttachPid(val));
                     i += 2;
                 } else {
@@ -173,13 +185,16 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
             }
             "--spawn" => {
                 if i + 1 < args.len() {
-                    let cmd = args[i+1].clone();
+                    let cmd = args[i + 1].clone();
                     let cmd_args = if i + 2 < args.len() {
-                        args[i+2..].to_vec()
+                        args[i + 2..].to_vec()
                     } else {
                         vec![]
                     };
-                    target = Some(CiTarget::Spawn { command: cmd, args: cmd_args });
+                    target = Some(CiTarget::Spawn {
+                        command: cmd,
+                        args: cmd_args,
+                    });
                     break;
                 } else {
                     return Err(AppError::MissingArg("--spawn".into()));
@@ -187,7 +202,28 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
             }
             "--format" => {
                 //choose which kind of format json, csv, junit
-                todo!()
+                if i + 1 < args.len() {
+                    let parsed_format = args[i + 1].as_str();
+                    match parsed_format {
+                        "json" => {
+                            format = Some(FormatType::Json);
+                        }
+                        "junit" => {
+                            format = Some(FormatType::Junit);
+                        }
+                        "csv" => {
+                            format = Some(FormatType::CSV);
+                        }
+                        other => {
+                            return Err(AppError::InvalidArg(format!(
+                                "Unknown argument: {}",
+                                other
+                            )));
+                        }
+                    }
+                } else {
+                    return Err(AppError::MissingArg("--format".into()));
+                }
             }
             "--output" => {
                 //to write results
@@ -203,13 +239,14 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
             }
         }
     }
-    
+
     let target = target.unwrap_or_else(|| CiTarget::AttachName("".to_string()));
-    
+
     Ok(CiArgs {
         target,
         max_memory,
         leak_check,
         duration,
+        format,
     })
 }
