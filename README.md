@@ -127,6 +127,15 @@ make run-scan PROCESS=language_server_macos_arm MODE=-a
 ```
 *Note: Apple platform apps (Safari, Finder) and some Hardened Runtime apps (WhatsApp) will remain protected by System Integrity Protection (SIP) even with this entitlement.*
 
+## Windows Antivirus False Positives & Execution Warnings
+
+Because `m-vis` is an unsigned, open-source memory utility, Windows Defender or other antivirus software may occasionally flag `mvis.exe` with a behavioral warning (e.g., "Suspicious Behavior" or a SmartScreen block).
+
+### Why does this happen?
+To perform memory visualization, `m-vis` must open handles to, inspect, and interact with the memory space of active processes. When an unsigned binary attempts to inspect critical or system-level processes (like `explorer.exe`), heuristic-based security engines flag this behavior because it looks identical to process-injection techniques used by malware. 
+
+The entire source code of this tool is fully transparent, auditable, and open for review.
+
 ---
 
 ## 💻 Detailed Usage & Examples
