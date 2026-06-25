@@ -1,5 +1,5 @@
 use crate::core::scan::{diff_heap_size, heap_mode};
-use crate::export::FormatType;
+use crate::export::{FormatType, heap_to_csv_file, heap_to_json_file, heap_to_junit_file};
 use crate::utils::error::AppError;
 use crate::utils::process::{FuzzyMatch, fuzzy_find_pid};
 use std::process::{Child, Command};
@@ -18,9 +18,12 @@ struct CiArgs {
     leak_check: bool,
     duration: Option<Duration>,
     format: Option<FormatType>,
+    output: Option<String>,
 }
 
 pub fn ci_main(args: &[String]) -> i32 {
+    let mut last_captured_heap = None;
+
     let parsed: CiArgs = match parse_ci_args(args) {
         Ok(p) => p,
         Err(e) => {
@@ -100,9 +103,42 @@ pub fn ci_main(args: &[String]) -> i32 {
             }
         }
 
+        if let Ok(current) = heap_mode(pid) {
+            last_captured_heap = Some(current);
+        }
+
         std::thread::sleep(poll_interval);
     }
 
+    if let Some(ref format_type) = parsed.format {
+        if let Some(current_heap) = last_captured_heap {
+            let blocks = current_heap;
+
+            let target_path = parsed.output.clone().unwrap_or_else(|| match format_type {
+                FormatType::Json => "heap_dump.json".to_string(),
+                FormatType::CSV => "heap_dump.csv".to_string(),
+                FormatType::Junit => "heap_dump.xml".to_string(),
+            });
+
+            let export_result = match format_type {
+                FormatType::Json => heap_to_json_file(&target_path, blocks),
+                FormatType::CSV => heap_to_csv_file(&target_path, blocks),
+                FormatType::Junit => heap_to_junit_file(&target_path, blocks),
+            };
+
+            match export_result {
+                Ok(_) => println!("Successfully wrote report to: {}", target_path),
+                Err(e) => {
+                    eprintln!("failed to export report to {}: {}", target_path, e);
+                    if exit_code == 0 {
+                        exit_code = 1;
+                    }
+                }
+            }
+        } else {
+            eprintln!("warning: no heap snapshot was captured; skipping export");
+        }
+    }
     // Cleanup spawned child if any
     if let Some(mut c) = child {
         let _ = c.kill();
@@ -142,6 +178,7 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
     let mut duration = None;
     let mut target = None;
     let mut format = None;
+    let mut output = None;
 
     let mut i = 2; // skip "mvis" and "ci"
     while i < args.len() {
@@ -221,13 +258,18 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
                             )));
                         }
                     }
+                    i += 2;
                 } else {
                     return Err(AppError::MissingArg("--format".into()));
                 }
             }
             "--output" => {
-                //to write results
-                todo!()
+                if i + 1 < args.len() {
+                    output = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    return Err(AppError::MissingArg("--output".into()));
+                }
             }
             other => {
                 if target.is_none() {
@@ -248,5 +290,6 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
         leak_check,
         duration,
         format,
+        output,
     })
 }
