@@ -24,9 +24,7 @@ pub fn build_process_tree(pid: u32) -> Option<ProcessTreeNode> {
     let sys = System::new_all();
     let processes: &std::collections::HashMap<sysinfo::Pid, sysinfo::Process> = sys.processes();
 
-    let target: &sysinfo::Process = processes
-        .values()
-        .find(|p| p.pid().as_u32() == pid)?;
+    let target: &sysinfo::Process = processes.values().find(|p| p.pid().as_u32() == pid)?;
 
     // Walk up to find the root ancestor
     let mut root_pid = pid;
@@ -68,9 +66,7 @@ pub fn build_process_tree(pid: u32) -> Option<ProcessTreeNode> {
         let mut children: Vec<ProcessTreeNode> = processes
             .values()
             .filter(|p: &&sysinfo::Process| {
-                p.parent()
-                    .map(|pp| pp.as_u32() == pid)
-                    .unwrap_or(false)
+                p.parent().map(|pp| pp.as_u32() == pid).unwrap_or(false)
                     && p.pid().as_u32() != pid
                     && p.thread_kind().is_none()
             })

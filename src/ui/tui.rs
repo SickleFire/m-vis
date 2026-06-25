@@ -1537,10 +1537,7 @@ fn render_process_tree(
         };
 
         let line = Line::from(vec![
-            Span::styled(
-                format!("{indent}{prefix}{:<25}", row.name),
-                style,
-            ),
+            Span::styled(format!("{indent}{prefix}{:<25}", row.name), style),
             Span::styled(
                 format!(" PID:{:<8}", row.pid),
                 if i == selected {
@@ -1985,8 +1982,10 @@ mod tests {
         let rows = make_tree_rows();
         let total = 350 * 1024 * 1024;
         let lines = render_process_tree(&rows, 0, total, &theme);
-        assert!(lines
-            .iter()
-            .any(|l| l.to_string().contains("Total group memory")));
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.to_string().contains("Total group memory"))
+        );
     }
 }
