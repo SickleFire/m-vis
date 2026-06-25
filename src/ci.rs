@@ -80,8 +80,9 @@ pub fn ci_main(args: &[String]) -> i32 {
                 let current_mem = process.memory(); // memory in bytes
                 if current_mem > max_mem {
                     eprintln!(
-                        "error: memory limit exceeded. Max: {}, Current: {}",
-                        max_mem, current_mem
+                        "error: memory limit exceeded. Max: {} MB, Current: {:.2} MB",
+                        max_mem / (1024 * 1024),
+                        current_mem as f64 / (1024.0 * 1024.0)
                     );
                     exit_code = 2;
                     break;
@@ -185,10 +186,10 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
         match args[i].as_str() {
             "--max-memory" => {
                 if i + 1 < args.len() {
-                    let val = args[i + 1]
+                    let mb_val = args[i + 1]
                         .parse::<u64>()
                         .map_err(|_| AppError::InvalidArg("invalid --max-memory".into()))?;
-                    max_memory = Some(val);
+                    max_memory = Some(mb_val * 1024 * 1024);
                     i += 2;
                 } else {
                     return Err(AppError::MissingArg("--max-memory".into()));
