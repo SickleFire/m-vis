@@ -14,6 +14,7 @@ use crate::types::{HeapBlock, RegionProtect};
 use crate::ui::commands::ScanResult;
 use crate::ui::theme::{Theme, ThemeKind};
 use crate::utils::formatting::{format_bytes, format_bytes_i64};
+use crate::utils::process::{TreeDisplayRow, build_process_tree, flatten_tree};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -78,6 +79,11 @@ struct App {
     busy: std::sync::Arc<AtomicBool>,
     leak_deltas: Vec<LeakDelta>,
     theme: Theme,
+    show_tree_view: bool,
+    tree_rows: Vec<TreeDisplayRow>,
+    tree_selected: usize,
+    tree_collapsed: std::collections::HashSet<u32>,
+    tree_total_memory: u64,
 }
 enum HeapViewMode {
     Metrics,     // high-level view
@@ -122,6 +128,11 @@ impl App {
             busy: std::sync::Arc::new(AtomicBool::new(false)),
             leak_deltas: vec![],
             theme,
+            show_tree_view: false,
+            tree_rows: vec![],
+            tree_selected: 0,
+            tree_collapsed: std::collections::HashSet::new(),
+            tree_total_memory: 0,
         };
         app.push_message("mvis ready. type 'help' for commands.".into());
         app
@@ -294,6 +305,51 @@ impl App {
         self.alloc_table_selected = self.alloc_table_selected.saturating_sub(1);
     }
 
+    fn toggle_tree_view(&mut self) {
+        self.show_tree_view = !self.show_tree_view;
+        if self.show_tree_view {
+            self.refresh_tree();
+        }
+    }
+
+    fn refresh_tree(&mut self) {
+        if let Some(pid) = self.current_pid
+            && let Some(tree) = build_process_tree(pid)
+        {
+            self.tree_total_memory = tree.total_memory();
+            let mut rows = Vec::new();
+            flatten_tree(&tree, 0, &self.tree_collapsed, &mut rows);
+            self.tree_rows = rows;
+            if self.tree_selected >= self.tree_rows.len() {
+                self.tree_selected = self.tree_rows.len().saturating_sub(1);
+            }
+        }
+    }
+
+    fn tree_toggle_collapse(&mut self) {
+        if let Some(row) = self.tree_rows.get(self.tree_selected)
+            && row.has_children
+        {
+            let pid = row.pid;
+            if self.tree_collapsed.contains(&pid) {
+                self.tree_collapsed.remove(&pid);
+            } else {
+                self.tree_collapsed.insert(pid);
+            }
+            self.refresh_tree();
+        }
+    }
+
+    fn tree_select_next(&mut self) {
+        if self.tree_selected + 1 < self.tree_rows.len() {
+            self.tree_selected += 1;
+        }
+    }
+
+    fn tree_select_prev(&mut self) {
+        self.tree_selected = self.tree_selected.saturating_sub(1);
+    }
+
     fn submit_message(&mut self) {
         let raw = self.input.trim().to_string();
         self.input.clear();
@@ -326,11 +382,11 @@ impl App {
                     match commands::scan(parts_ref) {
                         Ok(result) => {
                             tx.send(AppEvent::BaseLine(result)).ok();
-                            tx.send(AppEvent::Output(Line::raw(format!("Baseline set"))))
+                            tx.send(AppEvent::Output(Line::raw("Baseline set".to_string())))
                                 .ok();
                         }
                         Err(e) => {
-                            tx.send(AppEvent::Output(Line::raw(format!("{}", e)))).ok();
+                            tx.send(AppEvent::Output(Line::raw(e.to_string()))).ok();
                         }
                     };
                 });
@@ -419,9 +475,9 @@ impl App {
 
                             // safety timeout — don't hang forever if something never completes
                             if waited_ms > 30_000 {
-                                tx.send(AppEvent::Output(Line::raw(format!(
-                                    "watch: command timed out, continuing anyway"
-                                ))))
+                                tx.send(AppEvent::Output(Line::raw(
+                                    "watch: command timed out, continuing anyway".to_string(),
+                                )))
                                 .ok();
                                 break;
                             }
@@ -501,7 +557,7 @@ impl App {
                             tx.send(AppEvent::LeakResult(result.1)).ok();
                         }
                         Err(e) => {
-                            tx.send(AppEvent::Output(Line::raw(format!("{}", e)))).ok();
+                            tx.send(AppEvent::Output(Line::raw(e.to_string()))).ok();
                         }
                     };
                 });
@@ -570,6 +626,7 @@ impl App {
                 self.push_message("  clearbaseline".into());
                 self.push_message("  list                      list processes".into());
                 self.push_message("  clear                     clear output history".into());
+                self.push_message("  [t key]                   toggle process tree view".into());
             }
             _ => {
                 self.push_message(format!("unknown command: {}", parts.join(" ")));
@@ -791,42 +848,58 @@ impl App {
 
             terminal.draw(|frame| self.render(frame))?;
 
-            if crossterm::event::poll(std::time::Duration::from_millis(100))? {
-                if let Some(key) = event::read()?.as_key_press_event() {
-                    match self.input_mode {
-                        InputMode::Normal => match key.code {
-                            KeyCode::Char('e') => self.input_mode = InputMode::Editing,
-                            KeyCode::Char('q') => return Ok(()),
-                            KeyCode::Up => self.scroll_up(),
-                            KeyCode::Down => self.scroll_down(),
-                            KeyCode::Tab => {
-                                self.heap_view_mode = match self.heap_view_mode {
-                                    HeapViewMode::Metrics => HeapViewMode::Allocations,
-                                    HeapViewMode::Allocations => HeapViewMode::Chart,
-                                    HeapViewMode::Chart => HeapViewMode::Metrics,
-                                };
+            if crossterm::event::poll(std::time::Duration::from_millis(100))?
+                && let Some(key) = event::read()?.as_key_press_event()
+            {
+                match self.input_mode {
+                    InputMode::Normal => match key.code {
+                        KeyCode::Char('e') => self.input_mode = InputMode::Editing,
+                        KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Char('t') => self.toggle_tree_view(),
+                        KeyCode::Up => self.scroll_up(),
+                        KeyCode::Down => self.scroll_down(),
+                        KeyCode::Tab => {
+                            self.heap_view_mode = match self.heap_view_mode {
+                                HeapViewMode::Metrics => HeapViewMode::Allocations,
+                                HeapViewMode::Allocations => HeapViewMode::Chart,
+                                HeapViewMode::Chart => HeapViewMode::Metrics,
+                            };
+                        }
+                        KeyCode::Char(']') => self.next_page(),
+                        KeyCode::Char('[') => self.prev_page(),
+                        KeyCode::Char('j') => {
+                            if self.show_tree_view {
+                                self.tree_select_next();
+                            } else {
+                                self.select_next_row();
                             }
-                            //page through table
-                            KeyCode::Char(']') => self.next_page(),
-                            KeyCode::Char('[') => self.prev_page(),
-                            //row selection between page
-                            KeyCode::Char('j') => self.select_next_row(),
-                            KeyCode::Char('k') => self.select_prev_row(),
-                            _ => {}
-                        },
-                        InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
-                            KeyCode::Enter => self.submit_message(),
-                            KeyCode::Char(to_insert) => self.enter_char(to_insert),
-                            KeyCode::Backspace => self.delete_char(),
-                            KeyCode::Left => self.move_cursor_left(),
-                            KeyCode::Right => self.move_cursor_right(),
-                            KeyCode::Up => self.scroll_up(),
-                            KeyCode::Down => self.scroll_down(),
-                            KeyCode::Esc => self.input_mode = InputMode::Normal,
-                            _ => {}
-                        },
-                        InputMode::Editing => {}
-                    }
+                        }
+                        KeyCode::Char('k') => {
+                            if self.show_tree_view {
+                                self.tree_select_prev();
+                            } else {
+                                self.select_prev_row();
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if self.show_tree_view {
+                                self.tree_toggle_collapse();
+                            }
+                        }
+                        _ => {}
+                    },
+                    InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
+                        KeyCode::Enter => self.submit_message(),
+                        KeyCode::Char(to_insert) => self.enter_char(to_insert),
+                        KeyCode::Backspace => self.delete_char(),
+                        KeyCode::Left => self.move_cursor_left(),
+                        KeyCode::Right => self.move_cursor_right(),
+                        KeyCode::Up => self.scroll_up(),
+                        KeyCode::Down => self.scroll_down(),
+                        KeyCode::Esc => self.input_mode = InputMode::Normal,
+                        _ => {}
+                    },
+                    InputMode::Editing => {}
                 }
             }
         }
@@ -971,28 +1044,47 @@ impl App {
             processlayout[0],
         );
 
-        let args = vec![""];
-        let mut proc_list: Vec<String> = vec![];
-        match commands::list_processes(args) {
-            Ok(procs) => {
-                for p in procs {
-                    proc_list.push(p);
+        if self.show_tree_view {
+            let tree_lines = render_process_tree(
+                &self.tree_rows,
+                self.tree_selected,
+                self.tree_total_memory,
+                &self.theme,
+            );
+            frame.render_widget(
+                Paragraph::new(tree_lines)
+                    .block(
+                        Block::bordered()
+                            .border_style(Style::default().bg(self.theme.bg).fg(self.theme.border))
+                            .title("Process Tree [t to toggle]"),
+                    )
+                    .style(Style::default().bg(self.theme.bg).fg(self.theme.cyan)),
+                processlayout[1],
+            );
+        } else {
+            let args = vec![""];
+            let mut proc_list: Vec<String> = vec![];
+            match commands::list_processes(args) {
+                Ok(procs) => {
+                    for p in procs {
+                        proc_list.push(p);
+                    }
                 }
-            }
-            Err(e) => self.push_message(format!("Error: {e}")),
-        };
-        let list_lines: Vec<Line> = proc_list.into_iter().map(Line::from).collect();
+                Err(e) => self.push_message(format!("Error: {e}")),
+            };
+            let list_lines: Vec<Line> = proc_list.into_iter().map(Line::from).collect();
 
-        frame.render_widget(
-            Paragraph::new(list_lines)
-                .block(
-                    Block::bordered()
-                        .border_style(Style::default().bg(self.theme.bg).fg(self.theme.border))
-                        .title("Process List"),
-                )
-                .style(Style::default().bg(self.theme.bg).fg(self.theme.cyan)),
-            processlayout[1],
-        );
+            frame.render_widget(
+                Paragraph::new(list_lines)
+                    .block(
+                        Block::bordered()
+                            .border_style(Style::default().bg(self.theme.bg).fg(self.theme.border))
+                            .title("Process List [t for tree]"),
+                    )
+                    .style(Style::default().bg(self.theme.bg).fg(self.theme.cyan)),
+                processlayout[1],
+            );
+        }
 
         if matches!(self.heap_view_mode, HeapViewMode::Chart) {
             let raw: Vec<f64> = self
@@ -1165,6 +1257,13 @@ impl App {
                 ),
                 Span::raw(" scroll output  •  "),
                 Span::styled(
+                    "t",
+                    Style::default()
+                        .fg(self.theme.growth_warning)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" tree view  •  "),
+                Span::styled(
                     "[/]",
                     Style::default()
                         .fg(self.theme.growth_warning)
@@ -1213,7 +1312,7 @@ fn render_heap_metrics(
     theme: &crate::ui::theme::Theme,
 ) -> Vec<Line<'static>> {
     let mut lines = vec![];
-    let bar_w = (width as usize).saturating_sub(20);
+    let bar_w = width.saturating_sub(20);
 
     // fragmentation bar
     let frag_fill = ((snap.fragmentation / 100.0) * bar_w as f64) as usize;
@@ -1302,7 +1401,7 @@ fn render_alloc_table(
         b
     };
 
-    let total_pages = (used_blocks.len() + page_size - 1) / page_size;
+    let total_pages = used_blocks.len().div_ceil(page_size);
     let start = page * page_size;
     let page_blocks: Vec<_> = used_blocks.iter().skip(start).take(page_size).collect();
 
@@ -1353,9 +1452,7 @@ fn render_alloc_table(
 
         let style = if i == selected {
             Style::default().bg(theme.border).fg(theme.text)
-        } else if block.vm_protect == RegionProtect::Execute {
-            Style::default().fg(theme.growth_critical)
-        } else if block.size >= 1024 * 1024 {
+        } else if block.vm_protect == RegionProtect::Execute || block.size >= 1024 * 1024 {
             Style::default().fg(theme.growth_critical)
         } else if block.size >= 65536 {
             Style::default().fg(theme.growth_warning)
@@ -1381,6 +1478,109 @@ fn render_alloc_table(
     lines.push(Line::raw(
         "[ prev page   ] next page   J/K select row   Tab → Metrics",
     ));
+    lines
+}
+
+fn render_process_tree(
+    rows: &[TreeDisplayRow],
+    selected: usize,
+    total_memory: u64,
+    theme: &crate::ui::theme::Theme,
+) -> Vec<Line<'static>> {
+    let mut lines = vec![];
+
+    if rows.is_empty() {
+        lines.push(Line::raw("No process scanned yet."));
+        lines.push(Line::raw("Run: scan <proc> -h"));
+        lines.push(Line::raw("Then press t for tree view."));
+        return lines;
+    }
+
+    lines.push(Line::from(vec![
+        Span::raw("Total group memory: "),
+        Span::styled(
+            format_bytes(total_memory),
+            Style::default()
+                .fg(theme.magenta)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::raw("─".repeat(50)));
+
+    for (i, row) in rows.iter().enumerate() {
+        let indent = "  ".repeat(row.depth);
+        let prefix = if row.has_children {
+            if row.is_collapsed { "[+] " } else { "[-] " }
+        } else if row.depth > 0 {
+            "├─  "
+        } else {
+            "    "
+        };
+
+        let mem_mb = row.memory as f64 / (1024.0 * 1024.0);
+        let health_color = if mem_mb >= 500.0 {
+            theme.growth_critical
+        } else if mem_mb >= 100.0 {
+            theme.growth_warning
+        } else {
+            theme.healthy
+        };
+
+        let style = if i == selected {
+            Style::default()
+                .bg(theme.highlight_bg)
+                .fg(theme.highlight_fg)
+        } else {
+            Style::default().fg(health_color)
+        };
+
+        let line = Line::from(vec![
+            Span::styled(format!("{indent}{prefix}{:<25}", row.name), style),
+            Span::styled(
+                format!(" PID:{:<8}", row.pid),
+                if i == selected {
+                    style
+                } else {
+                    Style::default().fg(theme.text)
+                },
+            ),
+            Span::styled(
+                format!(" {}", format_bytes(row.memory)),
+                if i == selected {
+                    style
+                } else {
+                    Style::default().fg(health_color)
+                },
+            ),
+        ]);
+        lines.push(line);
+    }
+
+    lines.push(Line::raw("─".repeat(50)));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "j/k",
+            Style::default()
+                .fg(theme.growth_warning)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" navigate  "),
+        Span::styled(
+            "Enter",
+            Style::default()
+                .fg(theme.growth_warning)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" expand/collapse  "),
+        Span::styled(
+            "t",
+            Style::default()
+                .fg(theme.growth_warning)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" back to list"),
+    ]));
+
     lines
 }
 
@@ -1688,5 +1888,102 @@ mod tests {
         let badge = app.compute_badge().unwrap();
         assert!(badge.0.contains("CRITICAL"));
         assert_eq!(badge.1.fg.unwrap(), app.theme.growth_critical);
+    }
+
+    // ── tree view ────────────────────────────────────────────────────────────
+
+    fn make_tree_rows() -> Vec<TreeDisplayRow> {
+        vec![
+            TreeDisplayRow {
+                pid: 100,
+                name: "chrome.exe".into(),
+                memory: 200 * 1024 * 1024,
+                depth: 0,
+                has_children: true,
+                is_collapsed: false,
+            },
+            TreeDisplayRow {
+                pid: 101,
+                name: "chrome.exe".into(),
+                memory: 100 * 1024 * 1024,
+                depth: 1,
+                has_children: false,
+                is_collapsed: false,
+            },
+            TreeDisplayRow {
+                pid: 102,
+                name: "chrome.exe".into(),
+                memory: 50 * 1024 * 1024,
+                depth: 1,
+                has_children: false,
+                is_collapsed: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn toggle_tree_view_flips_state() {
+        let mut app = make_app();
+        assert!(!app.show_tree_view);
+        app.show_tree_view = !app.show_tree_view;
+        assert!(app.show_tree_view);
+        app.show_tree_view = !app.show_tree_view;
+        assert!(!app.show_tree_view);
+    }
+
+    #[test]
+    fn tree_select_next_increments() {
+        let mut app = make_app();
+        app.tree_rows = make_tree_rows();
+        app.tree_selected = 0;
+        app.tree_select_next();
+        assert_eq!(app.tree_selected, 1);
+    }
+
+    #[test]
+    fn tree_select_next_clamps_at_end() {
+        let mut app = make_app();
+        app.tree_rows = make_tree_rows();
+        app.tree_selected = 2;
+        app.tree_select_next();
+        assert_eq!(app.tree_selected, 2);
+    }
+
+    #[test]
+    fn tree_select_prev_decrements() {
+        let mut app = make_app();
+        app.tree_rows = make_tree_rows();
+        app.tree_selected = 2;
+        app.tree_select_prev();
+        assert_eq!(app.tree_selected, 1);
+    }
+
+    #[test]
+    fn tree_select_prev_does_not_underflow() {
+        let mut app = make_app();
+        app.tree_rows = make_tree_rows();
+        app.tree_selected = 0;
+        app.tree_select_prev();
+        assert_eq!(app.tree_selected, 0);
+    }
+
+    #[test]
+    fn render_process_tree_empty_shows_hint() {
+        let theme = ThemeKind::default().theme();
+        let lines = render_process_tree(&[], 0, 0, &theme);
+        assert!(lines.iter().any(|l| l.to_string().contains("No process")));
+    }
+
+    #[test]
+    fn render_process_tree_shows_total_memory() {
+        let theme = ThemeKind::default().theme();
+        let rows = make_tree_rows();
+        let total = 350 * 1024 * 1024;
+        let lines = render_process_tree(&rows, 0, total, &theme);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.to_string().contains("Total group memory"))
+        );
     }
 }

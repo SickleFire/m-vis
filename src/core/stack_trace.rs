@@ -462,8 +462,10 @@ mod windows {
                 Err(_) => return threads,
             };
 
-            let mut entry = THREADENTRY32::default();
-            entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+            let mut entry = THREADENTRY32 {
+                dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+                ..Default::default()
+            };
 
             if Thread32First(snapshot, &mut entry).is_ok() {
                 loop {
