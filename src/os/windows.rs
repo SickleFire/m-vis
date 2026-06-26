@@ -244,7 +244,9 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
                                 protect = RegionProtect::Readonly;
                             } else if mbi.Protect == PAGE_READWRITE {
                                 protect = RegionProtect::ReadWrite;
-                            } else if mbi.Protect == PAGE_EXECUTE || mbi.Protect == PAGE_EXECUTE_READ {
+                            } else if mbi.Protect == PAGE_EXECUTE
+                                || mbi.Protect == PAGE_EXECUTE_READ
+                            {
                                 protect = RegionProtect::Execute;
                             } else if mbi.Protect == PAGE_GUARD {
                                 protect = RegionProtect::Guard;

@@ -384,30 +384,37 @@ fn classify(regions: &[Region]) -> Vec<&str> {
             labels[i] = "stack-guard";
 
             if let Some(j) = i.checked_sub(1)
-                && regions[j].state == Reserved {
-                    labels[j] = "stack-reserved";
-                }
+                && regions[j].state == Reserved
+            {
+                labels[j] = "stack-reserved";
+            }
             if let Some(next) = regions.get(i + 1)
-                && next.kind == Private {
-                    labels[i + 1] = "stack-live";
-                }
+                && next.kind == Private
+            {
+                labels[i + 1] = "stack-live";
+            }
         } else if regions[i].protect == NoAccess {
             labels[i] = "stack-guard";
 
             // on macOS, stacks grow down but iteration goes up, so the live stack is before the NoAccess guard.
             if let Some(j) = i.checked_sub(1)
-                && regions[j].kind == Private && regions[j].protect == ReadWrite {
-                    labels[j] = "stack-live";
-                }
+                && regions[j].kind == Private
+                && regions[j].protect == ReadWrite
+            {
+                labels[j] = "stack-live";
+            }
         }
     }
 
     // pass 2 — only unlabeled private+committed non-executable regions are heap
     for i in 0..regions.len() {
-        if labels[i] == "?" && regions[i].state == Committed && regions[i].kind == Private
-            && regions[i].protect != Execute {
-                labels[i] = "heap";
-            }
+        if labels[i] == "?"
+            && regions[i].state == Committed
+            && regions[i].kind == Private
+            && regions[i].protect != Execute
+        {
+            labels[i] = "heap";
+        }
     }
 
     // pass 3 — label remaining known types

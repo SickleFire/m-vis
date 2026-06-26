@@ -1,7 +1,6 @@
 use ratatui::style::Color;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum ThemeKind {
     #[default]
     Dark,
@@ -9,7 +8,6 @@ pub enum ThemeKind {
     Deuteranopia,
     Protanopia,
 }
-
 
 impl ThemeKind {
     pub fn parse(s: &str) -> Option<Self> {

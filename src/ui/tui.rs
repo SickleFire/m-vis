@@ -314,28 +314,30 @@ impl App {
 
     fn refresh_tree(&mut self) {
         if let Some(pid) = self.current_pid
-            && let Some(tree) = build_process_tree(pid) {
-                self.tree_total_memory = tree.total_memory();
-                let mut rows = Vec::new();
-                flatten_tree(&tree, 0, &self.tree_collapsed, &mut rows);
-                self.tree_rows = rows;
-                if self.tree_selected >= self.tree_rows.len() {
-                    self.tree_selected = self.tree_rows.len().saturating_sub(1);
-                }
+            && let Some(tree) = build_process_tree(pid)
+        {
+            self.tree_total_memory = tree.total_memory();
+            let mut rows = Vec::new();
+            flatten_tree(&tree, 0, &self.tree_collapsed, &mut rows);
+            self.tree_rows = rows;
+            if self.tree_selected >= self.tree_rows.len() {
+                self.tree_selected = self.tree_rows.len().saturating_sub(1);
             }
+        }
     }
 
     fn tree_toggle_collapse(&mut self) {
         if let Some(row) = self.tree_rows.get(self.tree_selected)
-            && row.has_children {
-                let pid = row.pid;
-                if self.tree_collapsed.contains(&pid) {
-                    self.tree_collapsed.remove(&pid);
-                } else {
-                    self.tree_collapsed.insert(pid);
-                }
-                self.refresh_tree();
+            && row.has_children
+        {
+            let pid = row.pid;
+            if self.tree_collapsed.contains(&pid) {
+                self.tree_collapsed.remove(&pid);
+            } else {
+                self.tree_collapsed.insert(pid);
             }
+            self.refresh_tree();
+        }
     }
 
     fn tree_select_next(&mut self) {
@@ -473,7 +475,9 @@ impl App {
 
                             // safety timeout — don't hang forever if something never completes
                             if waited_ms > 30_000 {
-                                tx.send(AppEvent::Output(Line::raw("watch: command timed out, continuing anyway".to_string())))
+                                tx.send(AppEvent::Output(Line::raw(
+                                    "watch: command timed out, continuing anyway".to_string(),
+                                )))
                                 .ok();
                                 break;
                             }
@@ -845,58 +849,59 @@ impl App {
             terminal.draw(|frame| self.render(frame))?;
 
             if crossterm::event::poll(std::time::Duration::from_millis(100))?
-                && let Some(key) = event::read()?.as_key_press_event() {
-                    match self.input_mode {
-                        InputMode::Normal => match key.code {
-                            KeyCode::Char('e') => self.input_mode = InputMode::Editing,
-                            KeyCode::Char('q') => return Ok(()),
-                            KeyCode::Char('t') => self.toggle_tree_view(),
-                            KeyCode::Up => self.scroll_up(),
-                            KeyCode::Down => self.scroll_down(),
-                            KeyCode::Tab => {
-                                self.heap_view_mode = match self.heap_view_mode {
-                                    HeapViewMode::Metrics => HeapViewMode::Allocations,
-                                    HeapViewMode::Allocations => HeapViewMode::Chart,
-                                    HeapViewMode::Chart => HeapViewMode::Metrics,
-                                };
+                && let Some(key) = event::read()?.as_key_press_event()
+            {
+                match self.input_mode {
+                    InputMode::Normal => match key.code {
+                        KeyCode::Char('e') => self.input_mode = InputMode::Editing,
+                        KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Char('t') => self.toggle_tree_view(),
+                        KeyCode::Up => self.scroll_up(),
+                        KeyCode::Down => self.scroll_down(),
+                        KeyCode::Tab => {
+                            self.heap_view_mode = match self.heap_view_mode {
+                                HeapViewMode::Metrics => HeapViewMode::Allocations,
+                                HeapViewMode::Allocations => HeapViewMode::Chart,
+                                HeapViewMode::Chart => HeapViewMode::Metrics,
+                            };
+                        }
+                        KeyCode::Char(']') => self.next_page(),
+                        KeyCode::Char('[') => self.prev_page(),
+                        KeyCode::Char('j') => {
+                            if self.show_tree_view {
+                                self.tree_select_next();
+                            } else {
+                                self.select_next_row();
                             }
-                            KeyCode::Char(']') => self.next_page(),
-                            KeyCode::Char('[') => self.prev_page(),
-                            KeyCode::Char('j') => {
-                                if self.show_tree_view {
-                                    self.tree_select_next();
-                                } else {
-                                    self.select_next_row();
-                                }
+                        }
+                        KeyCode::Char('k') => {
+                            if self.show_tree_view {
+                                self.tree_select_prev();
+                            } else {
+                                self.select_prev_row();
                             }
-                            KeyCode::Char('k') => {
-                                if self.show_tree_view {
-                                    self.tree_select_prev();
-                                } else {
-                                    self.select_prev_row();
-                                }
+                        }
+                        KeyCode::Enter => {
+                            if self.show_tree_view {
+                                self.tree_toggle_collapse();
                             }
-                            KeyCode::Enter => {
-                                if self.show_tree_view {
-                                    self.tree_toggle_collapse();
-                                }
-                            }
-                            _ => {}
-                        },
-                        InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
-                            KeyCode::Enter => self.submit_message(),
-                            KeyCode::Char(to_insert) => self.enter_char(to_insert),
-                            KeyCode::Backspace => self.delete_char(),
-                            KeyCode::Left => self.move_cursor_left(),
-                            KeyCode::Right => self.move_cursor_right(),
-                            KeyCode::Up => self.scroll_up(),
-                            KeyCode::Down => self.scroll_down(),
-                            KeyCode::Esc => self.input_mode = InputMode::Normal,
-                            _ => {}
-                        },
-                        InputMode::Editing => {}
-                    }
+                        }
+                        _ => {}
+                    },
+                    InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
+                        KeyCode::Enter => self.submit_message(),
+                        KeyCode::Char(to_insert) => self.enter_char(to_insert),
+                        KeyCode::Backspace => self.delete_char(),
+                        KeyCode::Left => self.move_cursor_left(),
+                        KeyCode::Right => self.move_cursor_right(),
+                        KeyCode::Up => self.scroll_up(),
+                        KeyCode::Down => self.scroll_down(),
+                        KeyCode::Esc => self.input_mode = InputMode::Normal,
+                        _ => {}
+                    },
+                    InputMode::Editing => {}
                 }
+            }
         }
     }
 

@@ -36,9 +36,10 @@ fn run() -> Result<(), AppError> {
     let mut theme_kind = mvis::ui::theme::ThemeKind::default();
 
     if let Ok(env_theme) = env::var("MVIS_THEME")
-        && let Some(t) = mvis::ui::theme::ThemeKind::parse(&env_theme) {
-            theme_kind = t;
-        }
+        && let Some(t) = mvis::ui::theme::ThemeKind::parse(&env_theme)
+    {
+        theme_kind = t;
+    }
 
     if let Some(pos) = args.iter().position(|a| a == "--theme") {
         if pos + 1 < args.len() {
@@ -116,10 +117,7 @@ fn run() -> Result<(), AppError> {
             let flag = args.get(3).map(|s| s.as_str()).unwrap_or("").to_string();
 
             let modules = mem.list_modules(pid, flag.to_string()).unwrap_or_default();
-            println!(
-                "{:<18} {:<10} {:<10} NAME",
-                "ADDRESS", "SIZE", "STATUS"
-            );
+            println!("{:<18} {:<10} {:<10} NAME", "ADDRESS", "SIZE", "STATUS");
             println!("{}", "-".repeat(70));
 
             for m in &modules {
@@ -271,23 +269,11 @@ fn print_help_all() {
     println!("Commands:");
     println!("  {:<14} Analyze memory layout of a process", "scan");
     println!("  {:<14} Detect memory leaks in a process", "leak");
-    println!(
-        "  {:<14} Detect leaks across multiple samples",
-        "leak-m"
-    );
-    println!(
-        "  {:<14} Show running processes by memory usage",
-        "list"
-    );
-    println!(
-        "  {:<14} List loaded modules for a process",
-        "modules"
-    );
+    println!("  {:<14} Detect leaks across multiple samples", "leak-m");
+    println!("  {:<14} Show running processes by memory usage", "list");
+    println!("  {:<14} List loaded modules for a process", "modules");
     #[cfg(target_os = "windows")]
-    println!(
-        "  {:<14} Capture a stack trace (Windows only)",
-        "wintrace"
-    );
+    println!("  {:<14} Capture a stack trace (Windows only)", "wintrace");
     println!("  {:<14} Launch the interactive TUI", "tui");
     println!("  {:<14} Show command help", "help [cmd]");
     println!("  {:<14} Show version", "version");
