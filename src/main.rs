@@ -35,11 +35,10 @@ fn run() -> Result<(), AppError> {
     // Determine theme precedence: --theme flag -> MVIS_THEME -> dark (default)
     let mut theme_kind = mvis::ui::theme::ThemeKind::default();
 
-    if let Ok(env_theme) = env::var("MVIS_THEME") {
-        if let Some(t) = mvis::ui::theme::ThemeKind::parse(&env_theme) {
+    if let Ok(env_theme) = env::var("MVIS_THEME")
+        && let Some(t) = mvis::ui::theme::ThemeKind::parse(&env_theme) {
             theme_kind = t;
         }
-    }
 
     if let Some(pos) = args.iter().position(|a| a == "--theme") {
         if pos + 1 < args.len() {
@@ -97,9 +96,9 @@ fn run() -> Result<(), AppError> {
                 .values()
                 .filter(|p| process_is_visible(p, filter.as_deref()))
                 .collect();
-            processes.sort_by(|a, b| b.memory().cmp(&a.memory()));
+            processes.sort_by_key(|b| std::cmp::Reverse(b.memory()));
 
-            println!("{:<8} {:<30} {}", "PID", "NAME", "MEMORY");
+            println!("{:<8} {:<30} MEMORY", "PID", "NAME");
             println!("{}", "-".repeat(50));
             for process in processes.iter().take(20) {
                 println!(
@@ -118,8 +117,8 @@ fn run() -> Result<(), AppError> {
 
             let modules = mem.list_modules(pid, flag.to_string()).unwrap_or_default();
             println!(
-                "{:<18} {:<10} {:<10} {}",
-                "ADDRESS", "SIZE", "STATUS", "NAME"
+                "{:<18} {:<10} {:<10} NAME",
+                "ADDRESS", "SIZE", "STATUS"
             );
             println!("{}", "-".repeat(70));
 
@@ -270,33 +269,33 @@ fn print_help_all() {
     println!("Usage: mvis <command> [args]");
     println!();
     println!("Commands:");
-    println!("  {:<14} {}", "scan", "Analyze memory layout of a process");
-    println!("  {:<14} {}", "leak", "Detect memory leaks in a process");
+    println!("  {:<14} Analyze memory layout of a process", "scan");
+    println!("  {:<14} Detect memory leaks in a process", "leak");
     println!(
-        "  {:<14} {}",
-        "leak-m", "Detect leaks across multiple samples"
+        "  {:<14} Detect leaks across multiple samples",
+        "leak-m"
     );
     println!(
-        "  {:<14} {}",
-        "list", "Show running processes by memory usage"
+        "  {:<14} Show running processes by memory usage",
+        "list"
     );
     println!(
-        "  {:<14} {}",
-        "modules", "List loaded modules for a process"
+        "  {:<14} List loaded modules for a process",
+        "modules"
     );
     #[cfg(target_os = "windows")]
     println!(
-        "  {:<14} {}",
-        "wintrace", "Capture a stack trace (Windows only)"
+        "  {:<14} Capture a stack trace (Windows only)",
+        "wintrace"
     );
-    println!("  {:<14} {}", "tui", "Launch the interactive TUI");
-    println!("  {:<14} {}", "help [cmd]", "Show command help");
-    println!("  {:<14} {}", "version", "Show version");
+    println!("  {:<14} Launch the interactive TUI", "tui");
+    println!("  {:<14} Show command help", "help [cmd]");
+    println!("  {:<14} Show version", "version");
     println!();
     println!("Options:");
     println!(
-        "  {:<14} {}",
-        "--theme <name>", "Set UI theme (dark, light, deuteranopia, protanopia)"
+        "  {:<14} Set UI theme (dark, light, deuteranopia, protanopia)",
+        "--theme <name>"
     );
     println!();
     println!("Theme precedence:");

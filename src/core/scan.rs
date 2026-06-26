@@ -383,35 +383,31 @@ fn classify(regions: &[Region]) -> Vec<&str> {
         if regions[i].protect == Guard {
             labels[i] = "stack-guard";
 
-            if let Some(j) = i.checked_sub(1) {
-                if regions[j].state == Reserved {
+            if let Some(j) = i.checked_sub(1)
+                && regions[j].state == Reserved {
                     labels[j] = "stack-reserved";
                 }
-            }
-            if let Some(next) = regions.get(i + 1) {
-                if next.kind == Private {
+            if let Some(next) = regions.get(i + 1)
+                && next.kind == Private {
                     labels[i + 1] = "stack-live";
                 }
-            }
         } else if regions[i].protect == NoAccess {
             labels[i] = "stack-guard";
 
             // on macOS, stacks grow down but iteration goes up, so the live stack is before the NoAccess guard.
-            if let Some(j) = i.checked_sub(1) {
-                if regions[j].kind == Private && regions[j].protect == ReadWrite {
+            if let Some(j) = i.checked_sub(1)
+                && regions[j].kind == Private && regions[j].protect == ReadWrite {
                     labels[j] = "stack-live";
                 }
-            }
         }
     }
 
     // pass 2 — only unlabeled private+committed non-executable regions are heap
     for i in 0..regions.len() {
-        if labels[i] == "?" && regions[i].state == Committed && regions[i].kind == Private {
-            if regions[i].protect != Execute {
+        if labels[i] == "?" && regions[i].state == Committed && regions[i].kind == Private
+            && regions[i].protect != Execute {
                 labels[i] = "heap";
             }
-        }
     }
 
     // pass 3 — label remaining known types
@@ -455,7 +451,7 @@ pub fn diff_snapshots(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, 
         .iter()
         .filter(|b| !b.is_free)
         .filter(|b| before_addrs.binary_search(&b.address).is_err())
-        .map(|b| (b.address as usize, b.size))
+        .map(|b| (b.address, b.size))
         .collect()
 }
 
@@ -463,11 +459,7 @@ pub fn diff_snapshots(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, 
 pub fn diff_heap_size(before: &[HeapBlock], after: &[HeapBlock]) -> usize {
     let before_total: usize = before.iter().map(|b| b.size).sum();
     let after_total: usize = after.iter().map(|b| b.size).sum();
-    if after_total > before_total {
-        after_total - before_total
-    } else {
-        0
-    }
+    after_total.saturating_sub(before_total)
 }
 
 pub fn diff_freed_memory(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usize, usize)> {
@@ -482,7 +474,7 @@ pub fn diff_freed_memory(before: &[HeapBlock], after: &[HeapBlock]) -> Vec<(usiz
         .iter()
         .filter(|b| b.is_free)
         .filter(|b| before_addrs.binary_search(&b.address).is_err())
-        .map(|b| (b.address as usize, b.size))
+        .map(|b| (b.address, b.size))
         .collect()
 }
 
@@ -528,7 +520,7 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> (Vec<Line<'static>>, LeakDel
         allocated_bytes: growth,
     };
     let leak_delta_output = leak_delta.get_diagnostic_line();
-    output.push(Line::raw(format!("{}", leak_delta_output.0)));
+    output.push(Line::raw(leak_delta_output.0.to_string()));
     output.push(Line::raw(format!(
         "heap growth: {}",
         format_bytes(growth as u64)
@@ -542,7 +534,7 @@ pub fn leak_command_tui(pid: u32, interval: u64) -> (Vec<Line<'static>>, LeakDel
             Style::default().fg(Color::Red),
         )));
     } else {
-        output.push(Line::raw(format!("no leak detected")));
+        output.push(Line::raw("no leak detected".to_string()));
     }
     (output, leak_delta)
 }
@@ -614,7 +606,7 @@ pub fn leak_m_command_tui(pid: u32, interval: u64, samples: u64, tx: Sender<Line
 pub fn stack_trace(pid: u32, regions: &[Region]) {
     use crate::core::stack_trace::StackTrace;
 
-    let _trace = match StackTrace::capture(pid, &regions) {
+    let _trace = match StackTrace::capture(pid, regions) {
         Ok(t) => {
             eprintln!("[dbg] stack captured: {} frames", t.frames.len());
             t

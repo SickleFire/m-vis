@@ -313,8 +313,8 @@ impl App {
     }
 
     fn refresh_tree(&mut self) {
-        if let Some(pid) = self.current_pid {
-            if let Some(tree) = build_process_tree(pid) {
+        if let Some(pid) = self.current_pid
+            && let Some(tree) = build_process_tree(pid) {
                 self.tree_total_memory = tree.total_memory();
                 let mut rows = Vec::new();
                 flatten_tree(&tree, 0, &self.tree_collapsed, &mut rows);
@@ -323,12 +323,11 @@ impl App {
                     self.tree_selected = self.tree_rows.len().saturating_sub(1);
                 }
             }
-        }
     }
 
     fn tree_toggle_collapse(&mut self) {
-        if let Some(row) = self.tree_rows.get(self.tree_selected) {
-            if row.has_children {
+        if let Some(row) = self.tree_rows.get(self.tree_selected)
+            && row.has_children {
                 let pid = row.pid;
                 if self.tree_collapsed.contains(&pid) {
                     self.tree_collapsed.remove(&pid);
@@ -337,7 +336,6 @@ impl App {
                 }
                 self.refresh_tree();
             }
-        }
     }
 
     fn tree_select_next(&mut self) {
@@ -382,11 +380,11 @@ impl App {
                     match commands::scan(parts_ref) {
                         Ok(result) => {
                             tx.send(AppEvent::BaseLine(result)).ok();
-                            tx.send(AppEvent::Output(Line::raw(format!("Baseline set"))))
+                            tx.send(AppEvent::Output(Line::raw("Baseline set".to_string())))
                                 .ok();
                         }
                         Err(e) => {
-                            tx.send(AppEvent::Output(Line::raw(format!("{}", e)))).ok();
+                            tx.send(AppEvent::Output(Line::raw(e.to_string()))).ok();
                         }
                     };
                 });
@@ -475,9 +473,7 @@ impl App {
 
                             // safety timeout — don't hang forever if something never completes
                             if waited_ms > 30_000 {
-                                tx.send(AppEvent::Output(Line::raw(format!(
-                                    "watch: command timed out, continuing anyway"
-                                ))))
+                                tx.send(AppEvent::Output(Line::raw("watch: command timed out, continuing anyway".to_string())))
                                 .ok();
                                 break;
                             }
@@ -557,7 +553,7 @@ impl App {
                             tx.send(AppEvent::LeakResult(result.1)).ok();
                         }
                         Err(e) => {
-                            tx.send(AppEvent::Output(Line::raw(format!("{}", e)))).ok();
+                            tx.send(AppEvent::Output(Line::raw(e.to_string()))).ok();
                         }
                     };
                 });
@@ -848,8 +844,8 @@ impl App {
 
             terminal.draw(|frame| self.render(frame))?;
 
-            if crossterm::event::poll(std::time::Duration::from_millis(100))? {
-                if let Some(key) = event::read()?.as_key_press_event() {
+            if crossterm::event::poll(std::time::Duration::from_millis(100))?
+                && let Some(key) = event::read()?.as_key_press_event() {
                     match self.input_mode {
                         InputMode::Normal => match key.code {
                             KeyCode::Char('e') => self.input_mode = InputMode::Editing,
@@ -901,7 +897,6 @@ impl App {
                         InputMode::Editing => {}
                     }
                 }
-            }
         }
     }
 
@@ -1312,7 +1307,7 @@ fn render_heap_metrics(
     theme: &crate::ui::theme::Theme,
 ) -> Vec<Line<'static>> {
     let mut lines = vec![];
-    let bar_w = (width as usize).saturating_sub(20);
+    let bar_w = width.saturating_sub(20);
 
     // fragmentation bar
     let frag_fill = ((snap.fragmentation / 100.0) * bar_w as f64) as usize;
@@ -1401,7 +1396,7 @@ fn render_alloc_table(
         b
     };
 
-    let total_pages = (used_blocks.len() + page_size - 1) / page_size;
+    let total_pages = used_blocks.len().div_ceil(page_size);
     let start = page * page_size;
     let page_blocks: Vec<_> = used_blocks.iter().skip(start).take(page_size).collect();
 
@@ -1452,9 +1447,7 @@ fn render_alloc_table(
 
         let style = if i == selected {
             Style::default().bg(theme.border).fg(theme.text)
-        } else if block.vm_protect == RegionProtect::Execute {
-            Style::default().fg(theme.growth_critical)
-        } else if block.size >= 1024 * 1024 {
+        } else if block.vm_protect == RegionProtect::Execute || block.size >= 1024 * 1024 {
             Style::default().fg(theme.growth_critical)
         } else if block.size >= 65536 {
             Style::default().fg(theme.growth_warning)
