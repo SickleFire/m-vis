@@ -4,6 +4,120 @@ use sysinfo::System;
 /// Minimum Jaro-Winkler similarity for a process name to be considered a match.
 const SIMILARITY_THRESHOLD: f64 = 0.8;
 
+#[derive(Debug, Clone)]
+pub struct ProcessTreeNode {
+    pub pid: u32,
+    pub name: String,
+    pub memory: u64,
+    pub children: Vec<ProcessTreeNode>,
+}
+
+impl ProcessTreeNode {
+    pub fn total_memory(&self) -> u64 {
+        self.memory + self.children.iter().map(|c| c.total_memory()).sum::<u64>()
+    }
+}
+
+/// Builds a process tree rooted at the given PID.
+/// Finds the root ancestor first, then collects all descendants.
+pub fn build_process_tree(pid: u32) -> Option<ProcessTreeNode> {
+    let sys = System::new_all();
+    let processes: &std::collections::HashMap<sysinfo::Pid, sysinfo::Process> = sys.processes();
+
+    let target: &sysinfo::Process = processes.values().find(|p| p.pid().as_u32() == pid)?;
+
+    // Walk up to find the root ancestor
+    let mut root_pid = pid;
+    let mut visited = std::collections::HashSet::new();
+    visited.insert(root_pid);
+    loop {
+        let proc = processes.values().find(|p| p.pid().as_u32() == root_pid)?;
+        if let Some(parent_pid) = proc.parent() {
+            let ppid = parent_pid.as_u32();
+            if ppid == 0 || ppid == root_pid || visited.contains(&ppid) {
+                break;
+            }
+            // Only go up if parent has the same name (same process group)
+            if let Some(parent) = processes.values().find(|p| p.pid().as_u32() == ppid) {
+                let parent_name = parent.name().to_string_lossy().to_string();
+                let current_name = target.name().to_string_lossy().to_string();
+                if parent_name == current_name {
+                    root_pid = ppid;
+                    visited.insert(root_pid);
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    fn build_subtree(
+        pid: u32,
+        processes: &std::collections::HashMap<sysinfo::Pid, sysinfo::Process>,
+    ) -> Option<ProcessTreeNode> {
+        let proc_entry = processes.values().find(|p| p.pid().as_u32() == pid)?;
+        let name = proc_entry.name().to_string_lossy().to_string();
+        let memory = proc_entry.memory();
+
+        let mut children: Vec<ProcessTreeNode> = processes
+            .values()
+            .filter(|p: &&sysinfo::Process| {
+                p.parent().map(|pp| pp.as_u32() == pid).unwrap_or(false)
+                    && p.pid().as_u32() != pid
+                    && p.thread_kind().is_none()
+            })
+            .filter_map(|p: &sysinfo::Process| build_subtree(p.pid().as_u32(), processes))
+            .collect();
+        children.sort_by(|a, b| b.memory.cmp(&a.memory));
+
+        Some(ProcessTreeNode {
+            pid,
+            name,
+            memory,
+            children,
+        })
+    }
+
+    build_subtree(root_pid, processes)
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeDisplayRow {
+    pub pid: u32,
+    pub name: String,
+    pub memory: u64,
+    pub depth: usize,
+    pub has_children: bool,
+    pub is_collapsed: bool,
+}
+
+/// Flattens a process tree into display rows, respecting collapsed state.
+pub fn flatten_tree(
+    node: &ProcessTreeNode,
+    depth: usize,
+    collapsed: &std::collections::HashSet<u32>,
+    rows: &mut Vec<TreeDisplayRow>,
+) {
+    let is_collapsed = collapsed.contains(&node.pid);
+    rows.push(TreeDisplayRow {
+        pid: node.pid,
+        name: node.name.clone(),
+        memory: node.memory,
+        depth,
+        has_children: !node.children.is_empty(),
+        is_collapsed,
+    });
+    if !is_collapsed {
+        for child in &node.children {
+            flatten_tree(child, depth + 1, collapsed, rows);
+        }
+    }
+}
+
 /// Result of a fuzzy process-name lookup.
 #[derive(Debug, PartialEq)]
 pub enum FuzzyMatch {
@@ -185,5 +299,65 @@ mod tests {
     #[test]
     fn empty_candidates_returns_not_found() {
         assert_eq!(fuzzy_match("anything", &[]), FuzzyMatch::NotFound);
+    }
+
+    fn make_tree() -> ProcessTreeNode {
+        ProcessTreeNode {
+            pid: 100,
+            name: "chrome.exe".into(),
+            memory: 200 * 1024 * 1024,
+            children: vec![
+                ProcessTreeNode {
+                    pid: 101,
+                    name: "chrome.exe".into(),
+                    memory: 100 * 1024 * 1024,
+                    children: vec![],
+                },
+                ProcessTreeNode {
+                    pid: 102,
+                    name: "chrome.exe".into(),
+                    memory: 50 * 1024 * 1024,
+                    children: vec![],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn total_memory_sums_entire_tree() {
+        let tree = make_tree();
+        assert_eq!(tree.total_memory(), 350 * 1024 * 1024);
+    }
+
+    #[test]
+    fn flatten_tree_produces_correct_depths() {
+        let tree = make_tree();
+        let mut rows = Vec::new();
+        flatten_tree(&tree, 0, &std::collections::HashSet::new(), &mut rows);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].depth, 0);
+        assert_eq!(rows[1].depth, 1);
+        assert_eq!(rows[2].depth, 1);
+    }
+
+    #[test]
+    fn flatten_tree_respects_collapsed() {
+        let tree = make_tree();
+        let mut collapsed = std::collections::HashSet::new();
+        collapsed.insert(100u32);
+        let mut rows = Vec::new();
+        flatten_tree(&tree, 0, &collapsed, &mut rows);
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].is_collapsed);
+    }
+
+    #[test]
+    fn flatten_tree_leaf_has_no_children_flag() {
+        let tree = make_tree();
+        let mut rows = Vec::new();
+        flatten_tree(&tree, 0, &std::collections::HashSet::new(), &mut rows);
+        assert!(rows[0].has_children);
+        assert!(!rows[1].has_children);
+        assert!(!rows[2].has_children);
     }
 }
