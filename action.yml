@@ -1,0 +1,175 @@
+name: mvis memory audit
+description: Cross-platform heap monitoring and leak detection using mvis ci
+author: SickleFire
+
+inputs:
+  version:
+    description: mvis release version to download (e.g. v0.4.0), defaults to latest
+    required: false
+    default: latest
+
+  # --- target (one of these is required) ---
+  pid:
+    description: PID of an already-running process to attach to
+    required: false
+  spawn:
+    description: Command to spawn and monitor (must be last — consumes all remaining args)
+    required: false
+  process-name:
+    description: Fuzzy process name to attach to (e.g. "my_app")
+    required: false
+
+  # --- monitoring flags ---
+  max-memory:
+    description: Memory limit in megabytes before failing (e.g. 100 for 100 MB)
+    required: false
+  leak-check:
+    description: Enable leak detection against a baseline snapshot
+    required: false
+    default: 'false'
+  duration:
+    description: How long to monitor in seconds before exiting
+    required: false
+
+  # --- export flags ---
+  format:
+    description: Export format — json, csv, or junit
+    required: false
+  output:
+    description: Output file path for the report (e.g. results.xml)
+    required: false
+
+outputs:
+  report-path:
+    description: Path to the exported report file (if --format was set)
+    value: ${{ steps.resolve-output.outputs.report_path }}
+
+runs:
+  using: composite
+  steps:
+
+    - name: Download mvis (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(curl -sf https://api.github.com/repos/SickleFire/m-vis/releases/latest \
+            | grep '"tag_name"' | cut -d '"' -f 4)
+        fi
+        curl -sSL \
+          "https://github.com/SickleFire/m-vis/releases/download/${VERSION}/mvis-linux-x86_64" \
+          -o /usr/local/bin/mvis
+        chmod +x /usr/local/bin/mvis
+
+    - name: Download mvis (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $version = "${{ inputs.version }}"
+        if ($version -eq "latest") {
+          $release = Invoke-RestMethod "https://api.github.com/repos/SickleFire/m-vis/releases/latest"
+          $version = $release.tag_name
+        }
+        $dest = "$env:USERPROFILE\mvis.exe"
+        $url  = "https://github.com/SickleFire/m-vis/releases/download/$version/mvis-windows-x86_64.exe"
+        Invoke-WebRequest -Uri $url -OutFile $dest
+        echo "$env:USERPROFILE" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Download mvis (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(curl -sf https://api.github.com/repos/SickleFire/m-vis/releases/latest \
+            | grep '"tag_name"' | cut -d '"' -f 4)
+        fi
+        # Pick the right binary for the runner architecture
+        ARCH=$(uname -m)
+        if [ "$ARCH" = "arm64" ]; then
+          ASSET="mvis-macos-aarch64"
+        else
+          ASSET="mvis-macos-x86_64"
+        fi
+        curl -sSL \
+          "https://github.com/SickleFire/m-vis/releases/download/${VERSION}/${ASSET}" \
+          -o /usr/local/bin/mvis
+        chmod +x /usr/local/bin/mvis
+
+    - name: Run mvis ci (Linux/macOS)
+      if: runner.os == 'Linux' || runner.os == 'macOS'
+      shell: bash
+      run: |
+        ARGS=""
+
+        # monitoring flags — order matters, --spawn must be last
+        [ -n "${{ inputs.max-memory }}" ]           && ARGS="$ARGS --max-memory ${{ inputs.max-memory }}"
+        [ "${{ inputs.leak-check }}" = "true" ]     && ARGS="$ARGS --leak-check"
+        [ -n "${{ inputs.duration }}" ]             && ARGS="$ARGS --duration ${{ inputs.duration }}"
+
+        # export flags
+        [ -n "${{ inputs.format }}" ]               && ARGS="$ARGS --format ${{ inputs.format }}"
+        [ -n "${{ inputs.output }}" ]               && ARGS="$ARGS --output ${{ inputs.output }}"
+
+        # target — exactly one should be set
+        if [ -n "${{ inputs.pid }}" ]; then
+          ARGS="$ARGS --pid ${{ inputs.pid }}"
+        elif [ -n "${{ inputs.process-name }}" ]; then
+          ARGS="$ARGS ${{ inputs.process-name }}"
+        elif [ -n "${{ inputs.spawn }}" ]; then
+          # --spawn must be last because it consumes the rest of the arg list
+          ARGS="$ARGS --spawn ${{ inputs.spawn }}"
+        else
+          echo "error: one of 'pid', 'process-name', or 'spawn' must be set" >&2
+          exit 1
+        fi
+
+        echo "Running: mvis ci $ARGS"
+        mvis ci $ARGS
+
+    - name: Run mvis ci (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $mvisArgs = @()
+
+        # monitoring flags
+        if ("${{ inputs.max-memory }}")                    { $mvisArgs += "--max-memory", "${{ inputs.max-memory }}" }
+        if ("${{ inputs.leak-check }}" -eq "true")         { $mvisArgs += "--leak-check" }
+        if ("${{ inputs.duration }}")                      { $mvisArgs += "--duration", "${{ inputs.duration }}" }
+
+        # export flags
+        if ("${{ inputs.format }}")                        { $mvisArgs += "--format", "${{ inputs.format }}" }
+        if ("${{ inputs.output }}")                        { $mvisArgs += "--output", "${{ inputs.output }}" }
+
+        # target
+        if ("${{ inputs.pid }}") {
+          $mvisArgs += "--pid", "${{ inputs.pid }}"
+        } elseif ("${{ inputs.process-name }}") {
+          $mvisArgs += "${{ inputs.process-name }}"
+        } elseif ("${{ inputs.spawn }}") {
+          # --spawn must be last
+          $mvisArgs += "--spawn", "${{ inputs.spawn }}"
+        } else {
+          Write-Error "error: one of 'pid', 'process-name', or 'spawn' must be set"
+          exit 1
+        }
+
+        Write-Host "Running: mvis ci $mvisArgs"
+        & mvis ci @mvisArgs
+
+    - name: Resolve report path
+      id: resolve-output
+      if: inputs.format != ''
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.output }}" ]; then
+          echo "report_path=${{ inputs.output }}" >> $GITHUB_OUTPUT
+        else
+          case "${{ inputs.format }}" in
+            json)  echo "report_path=heap_dump.json" >> $GITHUB_OUTPUT ;;
+            csv)   echo "report_path=heap_dump.csv"  >> $GITHUB_OUTPUT ;;
+            junit) echo "report_path=heap_dump.xml"  >> $GITHUB_OUTPUT ;;
+          esac
+        fi
