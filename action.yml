@@ -2,6 +2,10 @@ name: mvis memory audit
 description: Cross-platform heap monitoring and leak detection using mvis ci
 author: SickleFire
 
+branding:
+  icon: 'activity'
+  color: 'blue'
+
 inputs:
   version:
     description: mvis release version to download (e.g. v0.4.0), defaults to latest
@@ -57,10 +61,12 @@ runs:
           VERSION=$(curl -sf https://api.github.com/repos/SickleFire/m-vis/releases/latest \
             | grep '"tag_name"' | cut -d '"' -f 4)
         fi
+        mkdir -p "$RUNNER_TEMP/mvis-bin"
         curl -sSL \
           "https://github.com/SickleFire/m-vis/releases/download/${VERSION}/mvis-linux-x86_64" \
-          -o /usr/local/bin/mvis
-        chmod +x /usr/local/bin/mvis
+          -o "$RUNNER_TEMP/mvis-bin/mvis"
+        chmod +x "$RUNNER_TEMP/mvis-bin/mvis"
+        echo "$RUNNER_TEMP/mvis-bin" >> $GITHUB_PATH
 
     - name: Download mvis (Windows)
       if: runner.os == 'Windows'
@@ -71,10 +77,12 @@ runs:
           $release = Invoke-RestMethod "https://api.github.com/repos/SickleFire/m-vis/releases/latest"
           $version = $release.tag_name
         }
-        $dest = "$env:USERPROFILE\mvis.exe"
+        $destDir = Join-Path $env:RUNNER_TEMP "mvis-bin"
+        New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+        $dest = Join-Path $destDir "mvis.exe"
         $url  = "https://github.com/SickleFire/m-vis/releases/download/$version/mvis-windows-x86_64.exe"
         Invoke-WebRequest -Uri $url -OutFile $dest
-        echo "$env:USERPROFILE" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo $destDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - name: Download mvis (macOS)
       if: runner.os == 'macOS'
@@ -92,41 +100,48 @@ runs:
         else
           ASSET="mvis-macos-x86_64"
         fi
+        mkdir -p "$RUNNER_TEMP/mvis-bin"
         curl -sSL \
           "https://github.com/SickleFire/m-vis/releases/download/${VERSION}/${ASSET}" \
-          -o /usr/local/bin/mvis
-        chmod +x /usr/local/bin/mvis
+          -o "$RUNNER_TEMP/mvis-bin/mvis"
+        chmod +x "$RUNNER_TEMP/mvis-bin/mvis"
+        echo "$RUNNER_TEMP/mvis-bin" >> $GITHUB_PATH
 
     - name: Run mvis ci (Linux/macOS)
       if: runner.os == 'Linux' || runner.os == 'macOS'
       shell: bash
       run: |
-        ARGS=""
+        declare -a ARGS=()
 
-        # monitoring flags — order matters, --spawn must be last
-        [ -n "${{ inputs.max-memory }}" ]           && ARGS="$ARGS --max-memory ${{ inputs.max-memory }}"
-        [ "${{ inputs.leak-check }}" = "true" ]     && ARGS="$ARGS --leak-check"
-        [ -n "${{ inputs.duration }}" ]             && ARGS="$ARGS --duration ${{ inputs.duration }}"
+        # monitoring flags
+        [ -n "${{ inputs.max-memory }}" ]           && ARGS+=(--max-memory "${{ inputs.max-memory }}")
+        [ "${{ inputs.leak-check }}" = "true" ]     && ARGS+=(--leak-check)
+        [ -n "${{ inputs.duration }}" ]             && ARGS+=(--duration "${{ inputs.duration }}")
 
         # export flags
-        [ -n "${{ inputs.format }}" ]               && ARGS="$ARGS --format ${{ inputs.format }}"
-        [ -n "${{ inputs.output }}" ]               && ARGS="$ARGS --output ${{ inputs.output }}"
+        [ -n "${{ inputs.format }}" ]               && ARGS+=(--format "${{ inputs.format }}")
+        [ -n "${{ inputs.output }}" ]               && ARGS+=(--output "${{ inputs.output }}")
 
-        # target — exactly one should be set
+        # target
         if [ -n "${{ inputs.pid }}" ]; then
-          ARGS="$ARGS --pid ${{ inputs.pid }}"
+          ARGS+=(--pid "${{ inputs.pid }}")
+          mvis ci "${ARGS[@]}"
         elif [ -n "${{ inputs.process-name }}" ]; then
-          ARGS="$ARGS ${{ inputs.process-name }}"
+          ARGS+=("${{ inputs.process-name }}")
+          mvis ci "${ARGS[@]}"
         elif [ -n "${{ inputs.spawn }}" ]; then
-          # --spawn must be last because it consumes the rest of the arg list
-          ARGS="$ARGS --spawn ${{ inputs.spawn }}"
+          # --spawn must be last. Use eval so quotes in spawn command are respected properly.
+          cmd="mvis ci"
+          for arg in "${ARGS[@]}"; do
+            cmd="$cmd $(printf '%q ' "$arg")"
+          done
+          cmd="$cmd --spawn ${{ inputs.spawn }}"
+          echo "Running: $cmd"
+          eval "$cmd"
         else
           echo "error: one of 'pid', 'process-name', or 'spawn' must be set" >&2
           exit 1
         fi
-
-        echo "Running: mvis ci $ARGS"
-        mvis ci $ARGS
 
     - name: Run mvis ci (Windows)
       if: runner.os == 'Windows'
@@ -146,18 +161,24 @@ runs:
         # target
         if ("${{ inputs.pid }}") {
           $mvisArgs += "--pid", "${{ inputs.pid }}"
+          & mvis ci @mvisArgs
         } elseif ("${{ inputs.process-name }}") {
           $mvisArgs += "${{ inputs.process-name }}"
+          & mvis ci @mvisArgs
         } elseif ("${{ inputs.spawn }}") {
-          # --spawn must be last
-          $mvisArgs += "--spawn", "${{ inputs.spawn }}"
+          # Use Invoke-Expression for spawn so PowerShell splits the command correctly
+          $cmd = "mvis ci"
+          foreach ($arg in $mvisArgs) {
+            $escaped = $arg -replace "'", "''"
+            $cmd += " '$escaped'"
+          }
+          $cmd += " --spawn ${{ inputs.spawn }}"
+          Write-Host "Running: $cmd"
+          Invoke-Expression $cmd
         } else {
           Write-Error "error: one of 'pid', 'process-name', or 'spawn' must be set"
           exit 1
         }
-
-        Write-Host "Running: mvis ci $mvisArgs"
-        & mvis ci @mvisArgs
 
     - name: Resolve report path
       id: resolve-output
