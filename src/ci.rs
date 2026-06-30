@@ -2,9 +2,13 @@ use crate::core::scan::{diff_heap_size, heap_mode};
 use crate::export::{FormatType, heap_to_csv_file, heap_to_json_file, heap_to_junit_file};
 use crate::utils::error::AppError;
 use crate::utils::process::{FuzzyMatch, fuzzy_find_pid};
+use std::collections::VecDeque;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 use sysinfo::System;
+
+// How far back the rolling window looks when computing growth rate.
+const GROWTH_WINDOW_SECS: u64 = 5;
 
 enum CiTarget {
     Spawn { command: String, args: Vec<String> },
@@ -19,6 +23,8 @@ struct CiArgs {
     duration: Option<Duration>,
     format: Option<FormatType>,
     output: Option<String>,
+    /// Bytes per second. Fail if the rolling-window growth rate exceeds this.
+    growth_rate: Option<u64>,
 }
 
 pub fn ci_main(args: &[String]) -> i32 {
@@ -40,7 +46,7 @@ pub fn ci_main(args: &[String]) -> i32 {
         }
     };
 
-    // baseline for leak check
+    // Baseline for leak check — taken once before the loop.
     let baseline = if parsed.leak_check {
         heap_mode(pid).ok()
     } else {
@@ -52,32 +58,35 @@ pub fn ci_main(args: &[String]) -> i32 {
     let mut sys = System::new_all();
     let mut exit_code = 0;
 
+    // Rolling window for --growth-rate: stores (sample_time, total_heap_bytes).
+    // Entries older than GROWTH_WINDOW_SECS are evicted each iteration.
+    let mut heap_samples: VecDeque<(Instant, u64)> = VecDeque::new();
+
     loop {
-        // Check if duration elapsed
+        // Check if duration elapsed.
         if let Some(dur) = parsed.duration {
             if start.elapsed() >= dur {
                 break;
             }
         }
 
-        // Check if process exited
+        // Check if process exited.
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         if sys.process(sysinfo::Pid::from_u32(pid)).is_none() {
-            // Process exited natively
             break;
         }
 
-        // Wait, if it's our spawned child, check try_wait()
+        // If we spawned the child, also check try_wait().
         if let Some(ref mut c) = child {
             if let Ok(Some(_)) = c.try_wait() {
                 break;
             }
         }
 
-        // Enforce max_memory
+        // Enforce --max-memory.
         if let Some(max_mem) = parsed.max_memory {
             if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
-                let current_mem = process.memory(); // memory in bytes
+                let current_mem = process.memory();
                 if current_mem > max_mem {
                     eprintln!(
                         "error: memory limit exceeded. Max: {} MB, Current: {:.2} MB",
@@ -90,27 +99,72 @@ pub fn ci_main(args: &[String]) -> i32 {
             }
         }
 
-        // Enforce leak_check by comparing with baseline
+        // Single heap snapshot for this tick — reused by both leak-check and
+        // growth-rate so we only walk the heap once per iteration.
+        let current_heap = heap_mode(pid).ok();
+
+        // Enforce --leak-check.
         if parsed.leak_check {
-            if let Some(ref prev) = baseline {
-                if let Ok(current) = heap_mode(pid) {
-                    let growth = diff_heap_size(prev, &current);
-                    if growth > 0 {
-                        eprintln!("error: memory leak detected! Heap grew by {} bytes", growth);
-                        exit_code = 2;
-                        break;
-                    }
+            if let (Some(prev), Some(current)) = (&baseline, &current_heap) {
+                let growth = diff_heap_size(prev, current);
+                if growth > 0 {
+                    eprintln!("error: memory leak detected! Heap grew by {} bytes", growth);
+                    exit_code = 2;
+                    break;
                 }
             }
         }
 
-        if let Ok(current) = heap_mode(pid) {
+        // Enforce --growth-rate using a rolling window.
+        if let Some(rate_limit) = parsed.growth_rate {
+            if let Some(ref current) = current_heap {
+                let heap_bytes: u64 = current
+                    .iter()
+                    .filter(|b| !b.is_free)
+                    .map(|b| b.size as u64)
+                    .sum();
+
+                let now = Instant::now();
+                heap_samples.push_back((now, heap_bytes));
+
+                let window = Duration::from_secs(GROWTH_WINDOW_SECS);
+                while heap_samples
+                    .front()
+                    .map(|(t, _)| now.duration_since(*t) > window)
+                    .unwrap_or(false)
+                {
+                    heap_samples.pop_front();
+                }
+
+                if heap_samples.len() >= 2 {
+                    let (oldest_time, oldest_bytes) = heap_samples.front().unwrap();
+                    let elapsed_secs = now.duration_since(*oldest_time).as_secs_f64();
+
+                    if elapsed_secs >= 1.0 {
+                        let byte_delta = heap_bytes.saturating_sub(*oldest_bytes);
+                        let rate = (byte_delta as f64 / elapsed_secs) as u64;
+
+                        if rate > rate_limit {
+                            eprintln!(
+                                "error: heap growth rate exceeded. Limit: {} B/s, Current: {} B/s (over {:.1}s window)",
+                                rate_limit, rate, elapsed_secs
+                            );
+                            exit_code = 2;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        // Keep the latest heap snapshot for export.
+        if let Some(current) = current_heap {
             last_captured_heap = Some(current);
         }
 
         std::thread::sleep(poll_interval);
     }
 
+    // Export report if requested.
     if let Some(ref format_type) = parsed.format {
         if let Some(current_heap) = last_captured_heap {
             let blocks = current_heap;
@@ -140,7 +194,8 @@ pub fn ci_main(args: &[String]) -> i32 {
             eprintln!("warning: no heap snapshot was captured; skipping export");
         }
     }
-    // Cleanup spawned child if any
+
+    // Cleanup spawned child if any.
     if let Some(mut c) = child {
         let _ = c.kill();
         let _ = c.wait();
@@ -180,6 +235,7 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
     let mut target = None;
     let mut format = None;
     let mut output = None;
+    let mut growth_rate = None;
 
     let mut i = 2; // skip "mvis" and "ci"
     while i < args.len() {
@@ -239,24 +295,14 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
                 }
             }
             "--format" => {
-                //choose which kind of format json, csv, junit
                 if i + 1 < args.len() {
                     let parsed_format = args[i + 1].as_str();
                     match parsed_format {
-                        "json" => {
-                            format = Some(FormatType::Json);
-                        }
-                        "junit" => {
-                            format = Some(FormatType::Junit);
-                        }
-                        "csv" => {
-                            format = Some(FormatType::CSV);
-                        }
+                        "json" => format = Some(FormatType::Json),
+                        "junit" => format = Some(FormatType::Junit),
+                        "csv" => format = Some(FormatType::CSV),
                         other => {
-                            return Err(AppError::InvalidArg(format!(
-                                "Unknown argument: {}",
-                                other
-                            )));
+                            return Err(AppError::InvalidArg(format!("Unknown format: {}", other)));
                         }
                     }
                     i += 2;
@@ -270,6 +316,19 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
                     i += 2;
                 } else {
                     return Err(AppError::MissingArg("--output".into()));
+                }
+            }
+            "--growth-rate" => {
+                if i + 1 < args.len() {
+                    let val = args[i + 1].parse::<u64>().map_err(|_| {
+                        AppError::InvalidArg(
+                            "invalid --growth-rate: expected bytes per second".into(),
+                        )
+                    })?;
+                    growth_rate = Some(val);
+                    i += 2;
+                } else {
+                    return Err(AppError::MissingArg("--growth-rate".into()));
                 }
             }
             other => {
@@ -292,5 +351,66 @@ fn parse_ci_args(args: &[String]) -> Result<CiArgs, AppError> {
         duration,
         format,
         output,
+        growth_rate,
     })
+}
+
+pub fn compute_growth_rate(
+    samples: &std::collections::VecDeque<(std::time::Instant, u64)>,
+    now: std::time::Instant,
+) -> Option<u64> {
+    if samples.len() < 2 {
+        return None;
+    }
+    let (oldest_time, oldest_bytes) = samples.front().unwrap();
+    let (_, newest_bytes) = samples.back().unwrap();
+    let elapsed = now.duration_since(*oldest_time).as_secs_f64();
+    if elapsed < 1.0 {
+        return None;
+    }
+    Some((newest_bytes.saturating_sub(*oldest_bytes) as f64 / elapsed) as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn rate_detected_correctly() {
+        let now = Instant::now();
+        let mut samples = VecDeque::new();
+        samples.push_back((now - Duration::from_secs(5), 0));
+        samples.push_back((now, 5 * 1024 * 1024)); // 1 MB/s over 5s
+        let rate = compute_growth_rate(&samples, now).unwrap();
+        assert!(rate > 900_000 && rate < 1_100_000); // ~1 MB/s
+    }
+
+    #[test]
+    fn single_sample_returns_none() {
+        let now = Instant::now();
+        let mut samples = VecDeque::new();
+        samples.push_back((now, 1024));
+        assert!(compute_growth_rate(&samples, now).is_none());
+    }
+
+    #[test]
+    fn sub_second_window_returns_none() {
+        let now = Instant::now();
+        let mut samples = VecDeque::new();
+        samples.push_back((now - Duration::from_millis(500), 0));
+        samples.push_back((now, 1024 * 1024));
+        assert!(compute_growth_rate(&samples, now).is_none());
+    }
+
+    #[test]
+    fn shrinking_heap_returns_zero() {
+        let now = Instant::now();
+        let mut samples = VecDeque::new();
+        samples.push_back((now - Duration::from_secs(5), 10 * 1024 * 1024));
+        samples.push_back((now, 5 * 1024 * 1024)); // heap shrank
+        let rate = compute_growth_rate(&samples, now).unwrap();
+        assert_eq!(rate, 0);
+    }
 }

@@ -185,7 +185,8 @@ fn run() -> Result<(), AppError> {
             mvis::core::scan::stack_trace(pid, &regions);
         }
         "ci" => {
-            let _ = ci_main(&args);
+            let code = ci_main(&args);
+            std::process::exit(code);
         }
         "tui" => {
             let _ = tui_main(theme_kind);
