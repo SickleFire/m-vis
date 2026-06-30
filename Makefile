@@ -5,10 +5,15 @@ MANDIR ?= $(PREFIX)/share/man/man1
 
 build:
 	cargo build --bin mvis
-	codesign --force --sign - --entitlements mvis.entitlements --timestamp=none target/debug/mvis
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		codesign --force --sign - --entitlements mvis.entitlements --timestamp=none target/debug/mvis; \
+	fi
 
 build-release:
 	cargo build --release --bin mvis
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		codesign --force --sign - --entitlements mvis.entitlements --timestamp=none target/release/mvis; \
+	fi
 
 run-scan:
 	$(MAKE) build
