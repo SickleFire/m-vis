@@ -10,6 +10,7 @@
 //! mvis list [filter]
 //! ```
 //!
+use mvis::ci::ci_main;
 use mvis::core::scan::{leak_command, leak_m_command, scan_with_modes};
 use mvis::os;
 use mvis::os::MemoryProvider;
@@ -182,6 +183,9 @@ fn run() -> Result<(), AppError> {
             let pid = find_pid(queryp.to_string())?;
             let regions = mem.walk_regions(pid).unwrap_or_default();
             mvis::core::scan::stack_trace(pid, &regions);
+        }
+        "ci" => {
+            let _ = ci_main(&args);
         }
         "tui" => {
             let _ = tui_main(theme_kind);
