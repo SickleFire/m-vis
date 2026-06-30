@@ -6,4 +6,4 @@ pub mod types;
 pub mod ui;
 pub mod utils;
 
-pub static VERSION: &str = "v0.4.0-rc1";
+pub static VERSION: &str = "v0.4.0";

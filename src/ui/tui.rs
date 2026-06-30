@@ -492,7 +492,7 @@ impl App {
                             break;
                         }
 
-                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        std::thread::sleep(std::time::Duration::from_secs(1));
                         i += 1;
                     }
                     tx.send(AppEvent::Output("watch complete".into())).ok();

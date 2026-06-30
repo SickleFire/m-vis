@@ -1093,7 +1093,7 @@ dependencies = [
 
 [[package]]
 name = "mvis"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "addr2line 0.24.2",
  "backtrace",
