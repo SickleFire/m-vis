@@ -117,15 +117,10 @@ pub fn ci_main(args: &[String]) -> i32 {
 
         // Enforce --growth-rate using a rolling window.
         if let Some(rate_limit) = parsed.growth_rate {
-            if let Some(ref current) = current_heap {
-                let heap_bytes: u64 = current
-                    .iter()
-                    .filter(|b| !b.is_free)
-                    .map(|b| b.size as u64)
-                    .sum();
-
+            if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
+                let mem_bytes = process.memory();
                 let now = Instant::now();
-                heap_samples.push_back((now, heap_bytes));
+                heap_samples.push_back((now, mem_bytes));
 
                 let window = Duration::from_secs(GROWTH_WINDOW_SECS);
                 while heap_samples
@@ -141,7 +136,7 @@ pub fn ci_main(args: &[String]) -> i32 {
                     let elapsed_secs = now.duration_since(*oldest_time).as_secs_f64();
 
                     if elapsed_secs >= 1.0 {
-                        let byte_delta = heap_bytes.saturating_sub(*oldest_bytes);
+                        let byte_delta = mem_bytes.saturating_sub(*oldest_bytes);
                         let rate = (byte_delta as f64 / elapsed_secs) as u64;
 
                         if rate > rate_limit {
