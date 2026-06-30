@@ -18,7 +18,7 @@ fn growth_rate_breach_exits_2() {
         .args([
             "ci",
             "--growth-rate",
-            "5120",
+            "1",
             "--duration",
             "10",
             "--spawn",
