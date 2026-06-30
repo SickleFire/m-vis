@@ -76,6 +76,10 @@ jobs:
 
       - name: Build mvis
         run: cargo build
-
+      
+      - name: Allow ptrace (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+      
       - name: Run CI integration tests
         run: cargo test --test ci_integration
