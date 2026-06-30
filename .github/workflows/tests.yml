@@ -38,3 +38,44 @@ jobs:
         run: cargo fmt -- --check
       - name: Run benchmarks
         run: cargo bench
+  ci-integration:
+    name: CI subcommand tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install gcc (Windows)
+        if: matrix.os == 'windows-latest'
+        run: choco install mingw -y
+
+      - name: Compile leak test binary (Windows)
+        if: matrix.os == 'windows-latest'
+        run: gcc tests/test_programs/leak_test_c.c -o tests/test_programs/leak_test_c.exe
+
+      - name: Compile leak test binary (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: gcc tests/test_programs/leak_test_c.c -o tests/test_programs/leak_test_c
+
+      - name: Build mvis
+        run: cargo build
+
+      - name: Run CI integration tests
+        run: cargo test --test ci_integration
