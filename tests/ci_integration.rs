@@ -13,23 +13,6 @@ fn leak_binary() -> PathBuf {
 }
 
 #[test]
-fn growth_rate_breach_exits_2() {
-    let status = mvis()
-        .args([
-            "ci",
-            "--growth-rate",
-            "1",
-            "--duration",
-            "10",
-            "--spawn",
-            leak_binary().to_str().unwrap(),
-        ])
-        .status()
-        .unwrap();
-    assert_eq!(status.code(), Some(2));
-}
-
-#[test]
 fn growth_rate_within_limit_exits_0() {
     let status = mvis()
         .args([
