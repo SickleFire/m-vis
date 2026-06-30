@@ -1,5 +1,5 @@
-use std::process::Command;
 use std::path::PathBuf;
+use std::process::Command;
 
 fn main() {
     let src = PathBuf::from("tests/test_programs/leak_test_c.c");
