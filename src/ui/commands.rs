@@ -36,7 +36,7 @@ pub fn process_name_is_visible(name: &str, filter: Option<&str>) -> bool {
         return false;
     }
 
-    filter.map_or(true, |f| name.to_ascii_lowercase().contains(f))
+    filter.is_none_or(|f| name.to_ascii_lowercase().contains(f))
 }
 
 /// Returns `true` if a sysinfo [`Process`](sysinfo::Process) entry should appear in listings.
@@ -193,10 +193,10 @@ pub fn list_processes(args: Vec<&str>) -> Result<Vec<String>, String> {
         .values()
         .filter(|p| process_is_visible(p, filter.as_deref()))
         .collect();
-    processes.sort_by(|a, b| b.memory().cmp(&a.memory()));
+    processes.sort_by_key(|b| std::cmp::Reverse(b.memory()));
 
     output.push(format!("{:<8} {:<30} {}", "PID", "NAME", "MEMORY"));
-    output.push(format!("{}", "-".repeat(50)));
+    output.push("-".repeat(50).to_string());
     for process in processes.iter().take(20) {
         output.push(format!(
             "{:<8} {:<30} {}",

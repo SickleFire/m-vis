@@ -1,4 +1,24 @@
 # Changelog
+## [0.4.0] - 2026-06-20
+### Added
+- Linux man pages (Makefile)
+- Process Tree View
+
+### Fixed
+- Watch mode delay from 2 secs to 1 secs.
+- Aligned heap high level metrics
+- Net growth overflow (added i64)
+
+## [0.4.0-rc1] - 2026-06-20
+### Added
+- MacOS support
+- Leak Delta Chart
+- Help Subcommand
+- Criterion Benches
+- (TUI) themes
+- (TUI) diff commands
+- (CLI) process name fuzzy matchable
+
 ## [0.3.0] - 2026-05-31
 ### Added
 - (TUI) modules command

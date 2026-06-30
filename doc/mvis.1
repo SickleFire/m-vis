@@ -1,0 +1,312 @@
+.\" mvis.1 - man page for mvis (Memory Visualizer)
+.TH MVIS 1 "2026-06-18" "mvis v0.4.0-rc1" "User Commands"
+.SH NAME
+mvis \- cross-platform memory diagnostic CLI tool
+.SH SYNOPSIS
+.B mvis
+.RI [ \-\-theme
+.IR name ]
+.I command
+.RI [ args ]
+.br
+.B mvis scan
+.I process mode
+.RB [ \-json
+.RI [ output ]]
+.br
+.B mvis leak
+.I process interval
+.br
+.B mvis leak\-m
+.I process interval samples
+.br
+.B mvis list
+.RI [ filter ]
+.br
+.B mvis modules
+.I process
+.RB [ \-t ]
+.br
+.B mvis trace
+.I process
+.br
+.B mvis tui
+.br
+.B mvis version
+.SH DESCRIPTION
+.B mvis
+(Memory Visualizer) is a cross-platform memory diagnostic tool for analyzing
+process memory, detecting leaks, and monitoring heap allocations. It provides
+both a command-line interface and an interactive terminal user interface (TUI).
+.PP
+When invoked with no arguments,
+.B mvis
+launches the interactive TUI.
+.PP
+Process names are resolved using fuzzy matching: an exact case-insensitive match
+is tried first, then a substring search. When multiple distinct process names
+match, an interactive selection prompt is displayed.
+.SH COMMANDS
+.TP
+.BI "scan " "process mode" " [-json] [output]"
+Analyze the memory layout of a running process.
+.I mode
+must be one of:
+.RS
+.TP
+.B \-h
+Heap mode. Shows heap statistics including block counts, fragmentation analysis,
+allocation size distribution, and the top 10 largest allocations.
+.TP
+.B \-a
+All regions. Displays a complete memory map with a visual bar chart. Region
+types are shown as:
+.B I
+(image),
+.B M
+(mapped),
+.B X
+(executable),
+.B H
+(heap),
+.B S
+(stack),
+.B G
+(guard),
+.B .
+(free).
+.TP
+.B \-v
+Verbose output. Shows loaded DLLs and modules in a detailed table format.
+.RE
+.IP
+The optional
+.B \-json
+flag outputs results as JSON. When
+.I output
+is given with
+.BR \-json ,
+results are written to the specified file path.
+.TP
+.BI "leak " "process interval"
+Monitor a process for memory leaks over time. Takes an initial memory snapshot,
+waits
+.I interval
+seconds, takes another snapshot, and computes the delta of heap blocks to detect
+unreleased allocations.
+.I interval
+must be a positive integer.
+.TP
+.BI "leak\-m " "process interval samples"
+Detect memory leaks using a fixed number of samples. Collects
+.I samples
+snapshots at
+.I interval
+second intervals. Both values must be positive integers.
+.TP
+.BI "list " [filter]
+Show the top 20 running processes sorted by memory usage (descending). If
+.I filter
+is given, only processes whose name matches the filter (case-insensitive
+substring) are shown.
+.TP
+.BI "modules " "process" " [-t]"
+List loaded modules for a process and check for tampering, injection, or
+modification. Each module is shown with its address, size, status, and name.
+Status values:
+.BR OK ,
+.BR TAMPERED ,
+.BR INJECTED ,
+.BR MODIFIED ,
+.BR UNREADABLE .
+.IP
+With the
+.B \-t
+flag, only tampered or injected modules are shown.
+.TP
+.BI "trace " process
+Capture and display a stack trace for a running process. On stripped binaries,
+function names may not be available; recompile with
+.B \-g
+to see them.
+.TP
+.B tui
+Launch the interactive Terminal User Interface. The TUI provides a memory
+analysis dashboard with real-time leak detection, process selection, multiple
+heap view modes, and a command input line.
+.IP
+Commands available inside the TUI:
+.RS
+.TP
+.BI "scan " "proc " \-a|\-h|\-v
+Run a memory scan in the selected mode.
+.TP
+.BI "leak " "proc secs"
+Detect leaks with the specified interval.
+.TP
+.BI "leak\-m " "proc secs samples"
+Multi-sample leak detection.
+.TP
+.BI "watch " "proc " [flag]
+Watch a process continuously.
+.TP
+.B stopwatch
+Stop the current watch.
+.TP
+.BI "baseline " proc
+Capture a baseline snapshot for comparison.
+.TP
+.BI "diff " proc
+Compare current state to the stored baseline.
+.TP
+.B clearbaseline
+Clear the stored baseline.
+.TP
+.B list
+List processes.
+.TP
+.B clear
+Clear output history.
+.TP
+.B help
+Show available TUI commands.
+.RE
+.TP
+.BI "help " [command]
+Display help information. If
+.I command
+is given, shows help for that specific command. Also available as
+.B \-h
+or
+.BR \-\-help .
+.TP
+.B version
+Display the version string. Also available as
+.B \-v
+or
+.BR \-\-version .
+.SH OPTIONS
+.TP
+.BI \-\-theme " name"
+Set the UI theme. Must appear before the command. Available themes:
+.BR dark " (default),"
+.BR light ,
+.BR deuteranopia ,
+.BR protanopia .
+The latter two are color-blind friendly.
+.SH ENVIRONMENT
+.TP
+.B MVIS_THEME
+Set the default UI theme without a command-line flag. Accepted values:
+.BR dark ,
+.BR light ,
+.BR deuteranopia ,
+.BR protanopia .
+The
+.B \-\-theme
+flag takes precedence over this variable.
+.SH EXAMPLES
+Scan heap statistics for a process:
+.PP
+.RS
+.nf
+$ mvis scan my_app \-h
+.fi
+.RE
+.PP
+Visualize all memory regions and export as JSON:
+.PP
+.RS
+.nf
+$ mvis scan my_app \-a \-json report.json
+.fi
+.RE
+.PP
+Monitor a process for leaks every 10 seconds:
+.PP
+.RS
+.nf
+$ mvis leak my_app 10
+.fi
+.RE
+.PP
+Collect 12 leak samples at 5-second intervals:
+.PP
+.RS
+.nf
+$ mvis leak\-m my_app 5 12
+.fi
+.RE
+.PP
+List top processes by memory, filtering for "firefox":
+.PP
+.RS
+.nf
+$ mvis list firefox
+.fi
+.RE
+.PP
+Check loaded modules for tampering:
+.PP
+.RS
+.nf
+$ mvis modules my_app \-t
+.fi
+.RE
+.PP
+Launch the TUI with a light theme:
+.PP
+.RS
+.nf
+$ mvis \-\-theme light tui
+.fi
+.RE
+.PP
+Use an environment variable for the theme:
+.PP
+.RS
+.nf
+$ export MVIS_THEME=deuteranopia
+$ mvis tui
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Successful execution.
+.TP
+.B 1
+An error occurred. The error message is printed to standard error.
+.SH PLATFORM NOTES
+.B mvis
+runs on Linux, macOS, and Windows.
+.PP
+On Linux, process inspection uses
+.BR ptrace (2)
+and the
+.I /proc
+filesystem. Some operations may require root privileges or
+.B CAP_SYS_PTRACE
+capability.
+.PP
+On macOS, the
+.B com.apple.security.cs.debugger
+entitlement may be required to inspect other processes.
+.PP
+The
+.B wintrace
+command is only available on Windows.
+.SH BUGS
+Report bugs at
+.UR https://github.com/m-visualizer/m-vis/issues
+.UE .
+.SH AUTHORS
+The mvis contributors.
+.SH LICENSE
+MIT License.
+.SH SEE ALSO
+.BR top (1),
+.BR ps (1),
+.BR pmap (1),
+.BR valgrind (1),
+.BR proc (5)

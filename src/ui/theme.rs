@@ -1,17 +1,12 @@
 use ratatui::style::Color;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum ThemeKind {
+    #[default]
     Dark,
     Light,
     Deuteranopia,
     Protanopia,
-}
-
-impl Default for ThemeKind {
-    fn default() -> Self {
-        Self::Dark
-    }
 }
 
 impl ThemeKind {

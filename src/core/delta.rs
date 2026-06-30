@@ -18,7 +18,7 @@ impl LeakDelta {
         let net = self.net_change();
         let allocated_kb = format_bytes(self.allocated_bytes as u64);
         let freed_kb = format_bytes(self.freed_bytes as u64);
-        let net_kb = format_bytes(net.abs() as u64);
+        let net_kb = format_bytes(net.unsigned_abs() as u64);
 
         if net > 0 {
             (

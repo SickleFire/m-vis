@@ -173,8 +173,10 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
         };
 
         let mut heap_bases: Vec<usize> = Vec::new();
-        let mut hl = HEAPLIST32::default();
-        hl.dwSize = std::mem::size_of::<HEAPLIST32>() as usize;
+        let mut hl = HEAPLIST32 {
+            dwSize: std::mem::size_of::<HEAPLIST32>(),
+            ..Default::default()
+        };
 
         if Heap32ListFirst(snapshot, &mut hl).is_ok() {
             loop {
@@ -242,9 +244,9 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
                                 protect = RegionProtect::Readonly;
                             } else if mbi.Protect == PAGE_READWRITE {
                                 protect = RegionProtect::ReadWrite;
-                            } else if mbi.Protect == PAGE_EXECUTE {
-                                protect = RegionProtect::Execute;
-                            } else if mbi.Protect == PAGE_EXECUTE_READ {
+                            } else if mbi.Protect == PAGE_EXECUTE
+                                || mbi.Protect == PAGE_EXECUTE_READ
+                            {
                                 protect = RegionProtect::Execute;
                             } else if mbi.Protect == PAGE_GUARD {
                                 protect = RegionProtect::Guard;
@@ -302,8 +304,10 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
             Err(_) => return blocks,
         };
 
-        let mut hl = HEAPLIST32::default();
-        hl.dwSize = std::mem::size_of::<HEAPLIST32>() as usize;
+        let mut hl = HEAPLIST32 {
+            dwSize: std::mem::size_of::<HEAPLIST32>(),
+            ..Default::default()
+        };
 
         if Heap32ListFirst(snapshot, &mut hl).is_err() {
             CloseHandle(snapshot).ok();
@@ -311,16 +315,18 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
         }
 
         loop {
-            let mut he = HEAPENTRY32::default();
-            he.dwSize = std::mem::size_of::<HEAPENTRY32>() as usize;
+            let mut he = HEAPENTRY32 {
+                dwSize: std::mem::size_of::<HEAPENTRY32>(),
+                ..Default::default()
+            };
 
             if Heap32First(&mut he, pid, hl.th32HeapID).is_ok() {
                 loop {
                     let is_free = (he.dwFlags.0 & 0x2) != 0; // LF32_FREE = 0x2
 
                     blocks.push(HeapBlock {
-                        address: he.dwAddress as usize,
-                        size: he.dwBlockSize as usize,
+                        address: he.dwAddress,
+                        size: he.dwBlockSize,
                         is_free,
                         vm_protect: RegionProtect::ReadWrite,
                     });
@@ -645,7 +651,7 @@ fn read_text_section_from_memory(
 }
 
 fn check_integrity(disk: &[u8], mem: &[u8]) -> ModuleStatus {
-    if disk.len() == 0 || mem.len() == 0 {
+    if disk.is_empty() || mem.is_empty() {
         return ModuleStatus::Unreadable;
     }
 
