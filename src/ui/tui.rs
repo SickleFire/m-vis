@@ -84,6 +84,9 @@ struct App {
     tree_selected: usize,
     tree_collapsed: std::collections::HashSet<u32>,
     tree_total_memory: u64,
+    proc_list: Vec<String>,
+    proc_list_selected: usize,
+    focus_proc_list: bool,
 }
 enum HeapViewMode {
     Metrics,     // high-level view
@@ -133,6 +136,9 @@ impl App {
             tree_selected: 0,
             tree_collapsed: std::collections::HashSet::new(),
             tree_total_memory: 0,
+            proc_list: vec![],
+            proc_list_selected: 0,
+            focus_proc_list: false,
         };
         app.push_message("mvis ready. type 'help' for commands.".into());
         app
@@ -303,6 +309,45 @@ impl App {
 
     fn select_prev_row(&mut self) {
         self.alloc_table_selected = self.alloc_table_selected.saturating_sub(1);
+    }
+
+    fn refresh_proc_list(&mut self) {
+        let args = vec![""];
+        match commands::list_processes(args) {
+            Ok(procs) => {
+                self.proc_list = procs;
+                if self.proc_list_selected >= self.proc_list.len() {
+                    self.proc_list_selected = self.proc_list.len().saturating_sub(1);
+                }
+            }
+            Err(e) => self.push_message(format!("Error: {e}")),
+        }
+    }
+
+    fn proc_list_select_next(&mut self) {
+        if self.proc_list_selected + 1 < self.proc_list.len() {
+            self.proc_list_selected += 1;
+        }
+    }
+
+    fn proc_list_select_prev(&mut self) {
+        self.proc_list_selected = self.proc_list_selected.saturating_sub(1);
+    }
+
+    fn toggle_proc_list_focus(&mut self) {
+        self.focus_proc_list = !self.focus_proc_list;
+        if self.focus_proc_list {
+            self.refresh_proc_list();
+        }
+    }
+
+    fn scan_selected_process(&mut self) {
+        if let Some(row) = self.proc_list.get(self.proc_list_selected) {
+            let name = row.split_whitespace().nth(1).unwrap_or("").to_string();
+            if !name.is_empty() {
+                self.dispatch(&format!("scan {} -h", name));
+            }
+        }
     }
 
     fn toggle_tree_view(&mut self) {
@@ -865,11 +910,15 @@ impl App {
                                 HeapViewMode::Chart => HeapViewMode::Metrics,
                             };
                         }
+                        KeyCode::Char('p') => self.toggle_proc_list_focus(),
+                        KeyCode::Char('r') if self.focus_proc_list => self.refresh_proc_list(),
                         KeyCode::Char(']') => self.next_page(),
                         KeyCode::Char('[') => self.prev_page(),
                         KeyCode::Char('j') => {
                             if self.show_tree_view {
                                 self.tree_select_next();
+                            } else if self.focus_proc_list {
+                                self.proc_list_select_next();
                             } else {
                                 self.select_next_row();
                             }
@@ -877,6 +926,8 @@ impl App {
                         KeyCode::Char('k') => {
                             if self.show_tree_view {
                                 self.tree_select_prev();
+                            } else if self.focus_proc_list {
+                                self.proc_list_select_prev();
                             } else {
                                 self.select_prev_row();
                             }
@@ -884,6 +935,8 @@ impl App {
                         KeyCode::Enter => {
                             if self.show_tree_view {
                                 self.tree_toggle_collapse();
+                            } else if self.focus_proc_list {
+                                self.scan_selected_process();
                             }
                         }
                         _ => {}
@@ -1062,24 +1115,39 @@ impl App {
                 processlayout[1],
             );
         } else {
-            let args = vec![""];
-            let mut proc_list: Vec<String> = vec![];
-            match commands::list_processes(args) {
-                Ok(procs) => {
-                    for p in procs {
-                        proc_list.push(p);
+            if self.proc_list.is_empty() {
+                self.refresh_proc_list();
+            }
+            let list_lines: Vec<Line> = self
+                .proc_list
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    if self.focus_proc_list && i == self.proc_list_selected {
+                        Line::from(Span::styled(
+                            p.clone(),
+                            Style::default()
+                                .bg(self.theme.highlight_bg)
+                                .fg(self.theme.highlight_fg),
+                        ))
+                    } else {
+                        Line::from(p.clone())
                     }
-                }
-                Err(e) => self.push_message(format!("Error: {e}")),
+                })
+                .collect();
+
+            let title = if self.focus_proc_list {
+                "Process List [p unfocus, j/k select, Enter scan, r refresh]"
+            } else {
+                "Process List [p to select] Process Tree [t to toggle]"
             };
-            let list_lines: Vec<Line> = proc_list.into_iter().map(Line::from).collect();
 
             frame.render_widget(
                 Paragraph::new(list_lines)
                     .block(
                         Block::bordered()
                             .border_style(Style::default().bg(self.theme.bg).fg(self.theme.border))
-                            .title("Process List [t for tree]"),
+                            .title(title),
                     )
                     .style(Style::default().bg(self.theme.bg).fg(self.theme.cyan)),
                 processlayout[1],
