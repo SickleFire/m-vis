@@ -341,13 +341,12 @@ impl App {
         }
     }
 
-    fn scan_selected_process(&mut self) {
-        if let Some(row) = self.proc_list.get(self.proc_list_selected) {
-            let name = row.split_whitespace().nth(1).unwrap_or("").to_string();
-            if !name.is_empty() {
-                self.dispatch(&format!("scan {} -h", name));
-            }
-        }
+    fn selected_proc_name(&self) -> Option<String> {
+        self.proc_list
+            .get(self.proc_list_selected)
+            .and_then(|row| row.split_whitespace().nth(1))
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
     }
 
     fn toggle_tree_view(&mut self) {
@@ -393,6 +392,12 @@ impl App {
 
     fn tree_select_prev(&mut self) {
         self.tree_selected = self.tree_selected.saturating_sub(1);
+    }
+
+    fn insert_at_cursor(&mut self, text: &str) {
+        let index = self.byte_index();
+        self.input.insert_str(index, text);
+        self.character_index += text.chars().count();
     }
 
     fn submit_message(&mut self) {
@@ -936,9 +941,38 @@ impl App {
                             if self.show_tree_view {
                                 self.tree_toggle_collapse();
                             } else if self.focus_proc_list {
-                                self.scan_selected_process();
+                                if let Some(name) = self.selected_proc_name() {
+                                    self.dispatch(&format!("scan {} -h", name));
+                                }
                             }
                         }
+                        KeyCode::Char('a') if self.focus_proc_list => {
+                            if let Some(name) = self.selected_proc_name() {
+                                self.dispatch(&format!("scan {} -a", name));
+                            }
+                        }
+                        KeyCode::Char('v') if self.focus_proc_list => {
+                            if let Some(name) = self.selected_proc_name() {
+                                self.dispatch(&format!("scan {} -v", name));
+                            }
+                        }
+                        KeyCode::Char('b') if self.focus_proc_list => {
+                            if let Some(name) = self.selected_proc_name() {
+                                self.dispatch(&format!("baseline {}", name));
+                            }
+                        }
+                        KeyCode::Char('d') if self.focus_proc_list => {
+                            if let Some(name) = self.selected_proc_name() {
+                                self.dispatch(&format!("diff {}", name));
+                            }
+                        }
+                        KeyCode::Char('i') if self.focus_proc_list => {
+                            if let Some(name) = self.selected_proc_name() {
+                                self.insert_at_cursor(&format!("{} ", name));
+                                self.input_mode = InputMode::Editing;
+                            }
+                        }
+
                         _ => {}
                     },
                     InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
@@ -1332,6 +1366,13 @@ impl App {
                 ),
                 Span::raw(" tree view  •  "),
                 Span::styled(
+                    "p",
+                    Style::default()
+                        .fg(self.theme.growth_warning)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" process select  •  "),
+                Span::styled(
                     "[/]",
                     Style::default()
                         .fg(self.theme.growth_warning)
@@ -1347,11 +1388,13 @@ impl App {
                         .bg(self.theme.growth_warning),
                 ),
                 Span::raw("  try: "),
-                Span::styled("scan notepad.exe -a", Style::default().fg(self.theme.cyan)),
+                Span::styled("scan <proc_name> -a", Style::default().fg(self.theme.cyan)),
                 Span::raw("  •  "),
-                Span::styled("scan notepad.exe -h", Style::default().fg(self.theme.cyan)),
+                Span::styled("scan <proc_name> -h", Style::default().fg(self.theme.cyan)),
                 Span::raw("  •  "),
-                Span::styled("leak notepad.exe 10", Style::default().fg(self.theme.cyan)),
+                Span::styled("leak <proc_name> 10", Style::default().fg(self.theme.cyan)),
+                Span::raw("  •  "),
+                Span::styled("watch <proc_name> -l", Style::default().fg(self.theme.cyan)),
                 Span::raw("  •  "),
                 Span::styled("list", Style::default().fg(self.theme.cyan)),
                 Span::raw("  •  "),
