@@ -111,9 +111,9 @@ struct PromptField {
 }
 
 enum PromptKind {
-    Leak,       // secs
-    LeakM,      // secs, samples
-    Watch,      // mode: -h/-m/-l
+    Leak,  // secs
+    LeakM, // secs, samples
+    Watch, // mode: -h/-m/-l
 }
 
 struct PromptState {
@@ -172,14 +172,31 @@ impl App {
     fn open_prompt(&mut self, kind: PromptKind) {
         if let Some(name) = self.selected_proc_name() {
             let fields = match kind {
-                PromptKind::Leak => vec![PromptField { label: "secs", value: String::new() }],
+                PromptKind::Leak => vec![PromptField {
+                    label: "secs",
+                    value: String::new(),
+                }],
                 PromptKind::LeakM => vec![
-                    PromptField { label: "secs", value: String::new() },
-                    PromptField { label: "samples", value: String::new() },
+                    PromptField {
+                        label: "secs",
+                        value: String::new(),
+                    },
+                    PromptField {
+                        label: "samples",
+                        value: String::new(),
+                    },
                 ],
-                PromptKind::Watch => vec![PromptField { label: "mode (-h/-m/-l)", value: "-h".into() }],
+                PromptKind::Watch => vec![PromptField {
+                    label: "mode (-h/-m/-l)",
+                    value: "-h".into(),
+                }],
             };
-            self.prompt = Some(PromptState { kind, proc_name: name, fields, selected: 0 });
+            self.prompt = Some(PromptState {
+                kind,
+                proc_name: name,
+                fields,
+                selected: 0,
+            });
         }
     }
 
@@ -1062,9 +1079,15 @@ impl App {
                                 self.input_mode = InputMode::Editing;
                             }
                         }
-                        KeyCode::Char('l') if self.focus == Focus::ProcList => self.open_prompt(PromptKind::Leak),
-                        KeyCode::Char('L') if self.focus == Focus::ProcList => self.open_prompt(PromptKind::LeakM),
-                        KeyCode::Char('w') if self.focus == Focus::ProcList => self.open_prompt(PromptKind::Watch),
+                        KeyCode::Char('l') if self.focus == Focus::ProcList => {
+                            self.open_prompt(PromptKind::Leak)
+                        }
+                        KeyCode::Char('L') if self.focus == Focus::ProcList => {
+                            self.open_prompt(PromptKind::LeakM)
+                        }
+                        KeyCode::Char('w') if self.focus == Focus::ProcList => {
+                            self.open_prompt(PromptKind::Watch)
+                        }
 
                         _ => {}
                     },
@@ -1422,95 +1445,91 @@ impl App {
                 let x = (area.width.saturating_sub(w)) / 2;
                 let y = (area.height.saturating_sub(h)) / 2;
                 let popup = ratatui::layout::Rect::new(x, y, w, h);
-                        
+
                 frame.render_widget(ratatui::widgets::Clear, popup);
-                        
+
                 let title = match p.kind {
                     PromptKind::Leak => "leak",
                     PromptKind::LeakM => "leak-m",
                     PromptKind::Watch => "watch",
                 };
-            
+
                 let mut lines = vec![Line::raw(format!("proc: {}", p.proc_name)), Line::raw("")];
                 for (i, f) in p.fields.iter().enumerate() {
                     let style = if i == p.selected {
-                        Style::default().bg(self.theme.highlight_bg).fg(self.theme.highlight_fg)
+                        Style::default()
+                            .bg(self.theme.highlight_bg)
+                            .fg(self.theme.highlight_fg)
                     } else {
                         Style::default().fg(self.theme.text)
                     };
-                    lines.push(Line::from(Span::styled(format!("{}: {}", f.label, f.value), style)));
+                    lines.push(Line::from(Span::styled(
+                        format!("{}: {}", f.label, f.value),
+                        style,
+                    )));
                 }
                 lines.push(Line::raw(""));
                 lines.push(Line::raw("Tab next  Enter confirm  Esc cancel"));
-            
+
                 frame.render_widget(
-                    Paragraph::new(lines).block(
-                        Block::bordered()
-                            .border_style(Style::default().fg(self.theme.growth_warning))
-                            .title(title),
-                    ).style(Style::default().bg(self.theme.bg).fg(self.theme.text)),
+                    Paragraph::new(lines)
+                        .block(
+                            Block::bordered()
+                                .border_style(Style::default().fg(self.theme.growth_warning))
+                                .title(title),
+                        )
+                        .style(Style::default().bg(self.theme.bg).fg(self.theme.text)),
                     popup,
                 );
             }
         }
 
         let footer_text = match self.input_mode {
-            InputMode::Normal => Line::from(vec![
-                Span::styled(
-                    " NORMAL ",
-                    Style::default().fg(self.theme.bg).bg(self.theme.healthy),
-                ),
-                Span::raw("  press "),
-                Span::styled(
-                    "e",
-                    Style::default()
-                        .fg(self.theme.growth_warning)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" to type a command  •  "),
-                Span::styled(
-                    "q",
-                    Style::default()
-                        .fg(self.theme.growth_warning)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" to quit  •  "),
-                Span::styled(
-                    "tab",
-                    Style::default()
-                        .fg(self.theme.growth_warning)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" toggle heap view  •  "),
-                Span::styled(
-                    "↑↓",
-                    Style::default()
-                        .fg(self.theme.growth_warning)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" scroll output  •  "),
-                Span::styled(
-                    "t",
-                    Style::default()
-                        .fg(self.theme.growth_warning)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" tree view  •  "),
-                Span::styled(
-                    "p",
-                    Style::default()
-                        .fg(self.theme.growth_warning)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" process select  •  "),
-                Span::styled(
-                    "[/]",
-                    Style::default()
-                        .fg(self.theme.growth_warning)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" prev/next page"),
-            ]),
+            InputMode::Normal => {
+                let mut spans = vec![
+                    Span::styled(
+                        " NORMAL ",
+                        Style::default().fg(self.theme.bg).bg(self.theme.healthy),
+                    ),
+                    Span::raw("  "),
+                ];
+                let hint = |k: &str, desc: &str| -> Vec<Span<'static>> {
+                    vec![
+                        Span::styled(
+                            k.to_string(),
+                            Style::default()
+                                .fg(self.theme.growth_warning)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::raw(format!(" {}  •  ", desc)),
+                    ]
+                };
+                spans.extend(hint("e", "edit"));
+                spans.extend(hint("q", "quit"));
+                spans.extend(hint("?", "help"));
+                match self.focus {
+                    Focus::ProcList => {
+                        spans.extend(hint("j/k", "select"));
+                        spans.extend(hint("Enter", "scan-h"));
+                        spans.extend(hint("a/v", "scan"));
+                        spans.extend(hint("b/d", "baseline/diff"));
+                        spans.extend(hint("l/L/w", "leak/leak-m/watch"));
+                        spans.extend(hint("i", "insert name"));
+                        spans.extend(hint("r", "refresh"));
+                    }
+                    Focus::Tree => {
+                        spans.extend(hint("j/k", "select"));
+                        spans.extend(hint("Enter", "expand/collapse"));
+                    }
+                    Focus::AllocTable => {
+                        spans.extend(hint("j/k", "select row"));
+                        spans.extend(hint("[/]", "page"));
+                        spans.extend(hint("Tab", "heap view"));
+                    }
+                }
+                spans.extend(hint("t/p", "toggle tree/proclist"));
+                Line::from(spans)
+            }
             InputMode::Editing => Line::from(vec![
                 Span::styled(
                     " INSERT ",
