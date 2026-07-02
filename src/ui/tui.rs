@@ -87,6 +87,8 @@ struct App {
     proc_list_selected: usize,
     focus: Focus,
     prompt: Option<PromptState>,
+    watch_target: Option<String>,
+    watch_mode: Option<String>,
 }
 enum HeapViewMode {
     Metrics,     // high-level view
@@ -164,6 +166,8 @@ impl App {
             proc_list_selected: 0,
             focus: Focus::AllocTable,
             prompt: None,
+            watch_target: None,
+            watch_mode: None,
         };
         app.push_message("mvis ready. type 'help' for commands.".into());
         app
@@ -188,7 +192,7 @@ impl App {
                 ],
                 PromptKind::Watch => vec![PromptField {
                     label: "mode (-h/-m/-l)",
-                    value: "-h".into(),
+                    value: "-l".into(),
                 }],
             };
             self.prompt = Some(PromptState {
@@ -507,6 +511,7 @@ impl App {
         }
         self.dispatch(&raw);
     }
+
     fn dispatch(&mut self, cmd: &str) {
         let raw = cmd.trim().to_string();
         if raw.is_empty() {
@@ -518,6 +523,18 @@ impl App {
         let parts: Vec<&str> = raw.split_whitespace().collect();
         self.handle_command(parts);
     }
+
+    fn compute_watch_badge(&self) -> Option<(String, Style)> {
+        let target = self.watch_target.as_ref()?;
+        let mode = self.watch_mode.as_deref().unwrap_or("");
+        Some((
+            format!("● watching {} ({})", target, mode),
+            Style::default()
+                .fg(self.theme.growth_warning)
+                .add_modifier(Modifier::BOLD),
+        ))
+    }
+
     fn handle_command(&mut self, parts: Vec<&str>) {
         match parts.clone().as_slice() {
             ["baseline", _proc] => {
@@ -595,6 +612,8 @@ impl App {
 
                 let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 self.watch_stop = Some(stop.clone());
+                self.watch_target = Some(proc.clone());
+                self.watch_mode = Some(mode.clone());
 
                 self.push_message(format!("watching: {}", cmd));
 
@@ -653,6 +672,8 @@ impl App {
                 } else {
                     self.push_message("no watch running".into());
                 }
+                self.watch_target = None;
+                self.watch_mode = None;
             }
             ["leak-m", _proc, _secs, _samples] => {
                 let proc_name = _proc.to_string();
@@ -1228,12 +1249,27 @@ impl App {
                         Span::styled(label, style),
                     ]));
                 }
+                if let Some((label, style)) = self.compute_badge() {
+                    lines.push(Line::from(vec![
+                        Span::raw("Status  : "),
+                        Span::styled(label, style),
+                    ]));
+                }
+                if let Some((label, style)) = self.compute_watch_badge() {
+                    lines.push(Line::from(Span::styled(label, style)));
+                }
                 lines
             }
-            None => vec![
-                Line::raw("No process scanned yet."),
-                Line::raw("Run: scan <proc> -a"),
-            ],
+            None => {
+                let mut lines = vec![
+                    Line::raw("No process scanned yet."),
+                    Line::raw("Run: scan <proc> -a"),
+                ];
+                if let Some((label, style)) = self.compute_watch_badge() {
+                    lines.push(Line::from(Span::styled(label, style)));
+                }
+                lines
+            }
         };
 
         frame.render_widget(
@@ -1287,7 +1323,7 @@ impl App {
                 .collect();
 
             let title = if self.focus == Focus::ProcList {
-                "Process List [j/k select  Enter scan-h  a/v scan  b baseline  d diff  i insert  r refresh]"
+                "Process List [j/k select  Enter scan-h  i insert  r refresh]"
             } else {
                 "Process List [p to select] Process Tree [t to toggle]"
             };
@@ -2149,6 +2185,18 @@ mod tests {
         let badge = app.compute_badge().unwrap();
         assert!(badge.0.contains("CRITICAL"));
         assert_eq!(badge.1.fg.unwrap(), app.theme.growth_critical);
+    }
+
+    #[test]
+    fn watch_badge_shows_target_and_mode() {
+        let mut app = make_app();
+        assert!(app.compute_watch_badge().is_none());
+
+        app.watch_target = Some("notepad.exe".into());
+        app.watch_mode = Some("-l".into());
+        let (label, _) = app.compute_watch_badge().unwrap();
+        assert!(label.contains("notepad.exe"));
+        assert!(label.contains("-l"));
     }
 
     // ── tree view ────────────────────────────────────────────────────────────
