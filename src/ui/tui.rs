@@ -79,14 +79,13 @@ struct App {
     busy: std::sync::Arc<AtomicBool>,
     leak_deltas: Vec<LeakDelta>,
     theme: Theme,
-    show_tree_view: bool,
     tree_rows: Vec<TreeDisplayRow>,
     tree_selected: usize,
     tree_collapsed: std::collections::HashSet<u32>,
     tree_total_memory: u64,
     proc_list: Vec<String>,
     proc_list_selected: usize,
-    focus_proc_list: bool,
+    focus: Focus,
 }
 enum HeapViewMode {
     Metrics,     // high-level view
@@ -96,6 +95,13 @@ enum HeapViewMode {
 enum InputMode {
     Normal,
     Editing,
+}
+
+#[derive(PartialEq, Debug)]
+enum Focus {
+    ProcList,
+    Tree,
+    AllocTable,
 }
 
 //macro_rules! run_command {
@@ -131,14 +137,13 @@ impl App {
             busy: std::sync::Arc::new(AtomicBool::new(false)),
             leak_deltas: vec![],
             theme,
-            show_tree_view: false,
             tree_rows: vec![],
             tree_selected: 0,
             tree_collapsed: std::collections::HashSet::new(),
             tree_total_memory: 0,
             proc_list: vec![],
             proc_list_selected: 0,
-            focus_proc_list: false,
+            focus: Focus::AllocTable,
         };
         app.push_message("mvis ready. type 'help' for commands.".into());
         app
@@ -334,13 +339,6 @@ impl App {
         self.proc_list_selected = self.proc_list_selected.saturating_sub(1);
     }
 
-    fn toggle_proc_list_focus(&mut self) {
-        self.focus_proc_list = !self.focus_proc_list;
-        if self.focus_proc_list {
-            self.refresh_proc_list();
-        }
-    }
-
     fn selected_proc_name(&self) -> Option<String> {
         self.proc_list
             .get(self.proc_list_selected)
@@ -349,10 +347,17 @@ impl App {
             .map(str::to_string)
     }
 
-    fn toggle_tree_view(&mut self) {
-        self.show_tree_view = !self.show_tree_view;
-        if self.show_tree_view {
-            self.refresh_tree();
+    fn set_focus(&mut self, target: Focus) {
+        // pressing the same key twice returns focus to the alloc table
+        self.focus = if self.focus == target {
+            Focus::AllocTable
+        } else {
+            target
+        };
+        match self.focus {
+            Focus::Tree => self.refresh_tree(),
+            Focus::ProcList => self.refresh_proc_list(),
+            Focus::AllocTable => {}
         }
     }
 
@@ -905,7 +910,7 @@ impl App {
                     InputMode::Normal => match key.code {
                         KeyCode::Char('e') => self.input_mode = InputMode::Editing,
                         KeyCode::Char('q') => return Ok(()),
-                        KeyCode::Char('t') => self.toggle_tree_view(),
+                        KeyCode::Char('t') => self.set_focus(Focus::Tree),
                         KeyCode::Up => self.scroll_up(),
                         KeyCode::Down => self.scroll_down(),
                         KeyCode::Tab => {
@@ -915,58 +920,52 @@ impl App {
                                 HeapViewMode::Chart => HeapViewMode::Metrics,
                             };
                         }
-                        KeyCode::Char('p') => self.toggle_proc_list_focus(),
-                        KeyCode::Char('r') if self.focus_proc_list => self.refresh_proc_list(),
+                        KeyCode::Char('p') => self.set_focus(Focus::ProcList),
+                        KeyCode::Char('r') if self.focus == Focus::ProcList => {
+                            self.refresh_proc_list()
+                        }
                         KeyCode::Char(']') => self.next_page(),
                         KeyCode::Char('[') => self.prev_page(),
-                        KeyCode::Char('j') => {
-                            if self.show_tree_view {
-                                self.tree_select_next();
-                            } else if self.focus_proc_list {
-                                self.proc_list_select_next();
-                            } else {
-                                self.select_next_row();
-                            }
-                        }
-                        KeyCode::Char('k') => {
-                            if self.show_tree_view {
-                                self.tree_select_prev();
-                            } else if self.focus_proc_list {
-                                self.proc_list_select_prev();
-                            } else {
-                                self.select_prev_row();
-                            }
-                        }
-                        KeyCode::Enter => {
-                            if self.show_tree_view {
-                                self.tree_toggle_collapse();
-                            } else if self.focus_proc_list {
+                        KeyCode::Char('j') => match self.focus {
+                            Focus::Tree => self.tree_select_next(),
+                            Focus::ProcList => self.proc_list_select_next(),
+                            Focus::AllocTable => self.select_next_row(),
+                        },
+                        KeyCode::Char('k') => match self.focus {
+                            Focus::Tree => self.tree_select_prev(),
+                            Focus::ProcList => self.proc_list_select_prev(),
+                            Focus::AllocTable => self.select_prev_row(),
+                        },
+                        KeyCode::Enter => match self.focus {
+                            Focus::Tree => self.tree_toggle_collapse(),
+                            Focus::ProcList => {
                                 if let Some(name) = self.selected_proc_name() {
                                     self.dispatch(&format!("scan {} -h", name));
                                 }
                             }
-                        }
-                        KeyCode::Char('a') if self.focus_proc_list => {
+                            Focus::AllocTable => {}
+                        },
+                        KeyCode::Char('a') if self.focus == Focus::ProcList => {
                             if let Some(name) = self.selected_proc_name() {
                                 self.dispatch(&format!("scan {} -a", name));
                             }
                         }
-                        KeyCode::Char('v') if self.focus_proc_list => {
+                        KeyCode::Char('v') if self.focus == Focus::ProcList => {
                             if let Some(name) = self.selected_proc_name() {
                                 self.dispatch(&format!("scan {} -v", name));
                             }
                         }
-                        KeyCode::Char('b') if self.focus_proc_list => {
+                        KeyCode::Char('b') if self.focus == Focus::ProcList => {
                             if let Some(name) = self.selected_proc_name() {
                                 self.dispatch(&format!("baseline {}", name));
                             }
                         }
-                        KeyCode::Char('d') if self.focus_proc_list => {
+                        KeyCode::Char('d') if self.focus == Focus::ProcList => {
                             if let Some(name) = self.selected_proc_name() {
                                 self.dispatch(&format!("diff {}", name));
                             }
                         }
-                        KeyCode::Char('i') if self.focus_proc_list => {
+                        KeyCode::Char('i') if self.focus == Focus::ProcList => {
                             if let Some(name) = self.selected_proc_name() {
                                 self.insert_at_cursor(&format!("{} ", name));
                                 self.input_mode = InputMode::Editing;
@@ -1131,7 +1130,7 @@ impl App {
             processlayout[0],
         );
 
-        if self.show_tree_view {
+        if self.focus == Focus::Tree {
             let tree_lines = render_process_tree(
                 &self.tree_rows,
                 self.tree_selected,
@@ -1157,7 +1156,7 @@ impl App {
                 .iter()
                 .enumerate()
                 .map(|(i, p)| {
-                    if self.focus_proc_list && i == self.proc_list_selected {
+                    if self.focus == Focus::ProcList && i == self.proc_list_selected {
                         Line::from(Span::styled(
                             p.clone(),
                             Style::default()
@@ -1170,8 +1169,8 @@ impl App {
                 })
                 .collect();
 
-            let title = if self.focus_proc_list {
-                "Process List [p unfocus, j/k select, Enter scan, r refresh]"
+            let title = if self.focus == Focus::ProcList {
+                "Process List [j/k select  Enter scan-h  a/v scan  b baseline  d diff  i insert  r refresh]"
             } else {
                 "Process List [p to select] Process Tree [t to toggle]"
             };
@@ -2035,11 +2034,13 @@ mod tests {
     #[test]
     fn toggle_tree_view_flips_state() {
         let mut app = make_app();
-        assert!(!app.show_tree_view);
-        app.show_tree_view = !app.show_tree_view;
-        assert!(app.show_tree_view);
-        app.show_tree_view = !app.show_tree_view;
-        assert!(!app.show_tree_view);
+        assert_eq!(app.focus, Focus::AllocTable);
+
+        app.set_focus(Focus::Tree);
+        assert_eq!(app.focus, Focus::Tree);
+
+        app.set_focus(Focus::Tree); // pressing 't' again toggles back
+        assert_eq!(app.focus, Focus::AllocTable);
     }
 
     #[test]
