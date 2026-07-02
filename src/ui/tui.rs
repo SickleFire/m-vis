@@ -86,6 +86,7 @@ struct App {
     proc_list: Vec<String>,
     proc_list_selected: usize,
     focus: Focus,
+    prompt: Option<PromptState>,
 }
 enum HeapViewMode {
     Metrics,     // high-level view
@@ -102,6 +103,24 @@ enum Focus {
     ProcList,
     Tree,
     AllocTable,
+}
+
+struct PromptField {
+    label: &'static str,
+    value: String,
+}
+
+enum PromptKind {
+    Leak,       // secs
+    LeakM,      // secs, samples
+    Watch,      // mode: -h/-m/-l
+}
+
+struct PromptState {
+    kind: PromptKind,
+    proc_name: String,
+    fields: Vec<PromptField>,
+    selected: usize,
 }
 
 //macro_rules! run_command {
@@ -144,9 +163,66 @@ impl App {
             proc_list: vec![],
             proc_list_selected: 0,
             focus: Focus::AllocTable,
+            prompt: None,
         };
         app.push_message("mvis ready. type 'help' for commands.".into());
         app
+    }
+
+    fn open_prompt(&mut self, kind: PromptKind) {
+        if let Some(name) = self.selected_proc_name() {
+            let fields = match kind {
+                PromptKind::Leak => vec![PromptField { label: "secs", value: String::new() }],
+                PromptKind::LeakM => vec![
+                    PromptField { label: "secs", value: String::new() },
+                    PromptField { label: "samples", value: String::new() },
+                ],
+                PromptKind::Watch => vec![PromptField { label: "mode (-h/-m/-l)", value: "-h".into() }],
+            };
+            self.prompt = Some(PromptState { kind, proc_name: name, fields, selected: 0 });
+        }
+    }
+
+    fn prompt_confirm(&mut self) {
+        if let Some(p) = self.prompt.take() {
+            let cmd = match p.kind {
+                PromptKind::Leak => format!("leak {} {}", p.proc_name, p.fields[0].value),
+                PromptKind::LeakM => format!(
+                    "leak-m {} {} {}",
+                    p.proc_name, p.fields[0].value, p.fields[1].value
+                ),
+                PromptKind::Watch => format!("watch {} {}", p.proc_name, p.fields[0].value),
+            };
+            self.dispatch(&cmd);
+        }
+    }
+
+    fn prompt_cancel(&mut self) {
+        self.prompt = None;
+    }
+
+    fn prompt_next_field(&mut self) {
+        if let Some(p) = &mut self.prompt {
+            p.selected = (p.selected + 1) % p.fields.len();
+        }
+    }
+
+    fn prompt_prev_field(&mut self) {
+        if let Some(p) = &mut self.prompt {
+            p.selected = (p.selected + p.fields.len() - 1) % p.fields.len();
+        }
+    }
+
+    fn prompt_push_char(&mut self, c: char) {
+        if let Some(p) = &mut self.prompt {
+            p.fields[p.selected].value.push(c);
+        }
+    }
+
+    fn prompt_backspace(&mut self) {
+        if let Some(p) = &mut self.prompt {
+            p.fields[p.selected].value.pop();
+        }
     }
 
     fn scroll_up(&mut self) {
@@ -903,6 +979,21 @@ impl App {
 
             terminal.draw(|frame| self.render(frame))?;
 
+            if self.prompt.is_some() {
+                if let Some(key) = event::read()?.as_key_press_event() {
+                    match key.code {
+                        KeyCode::Esc => self.prompt_cancel(),
+                        KeyCode::Enter => self.prompt_confirm(),
+                        KeyCode::Tab => self.prompt_next_field(),
+                        KeyCode::BackTab => self.prompt_prev_field(),
+                        KeyCode::Char(c) => self.prompt_push_char(c),
+                        KeyCode::Backspace => self.prompt_backspace(),
+                        _ => {}
+                    }
+                }
+                continue; // skip normal-mode key handling this iteration
+            }
+
             if crossterm::event::poll(std::time::Duration::from_millis(100))?
                 && let Some(key) = event::read()?.as_key_press_event()
             {
@@ -971,6 +1062,9 @@ impl App {
                                 self.input_mode = InputMode::Editing;
                             }
                         }
+                        KeyCode::Char('l') if self.focus == Focus::ProcList => self.open_prompt(PromptKind::Leak),
+                        KeyCode::Char('L') if self.focus == Focus::ProcList => self.open_prompt(PromptKind::LeakM),
+                        KeyCode::Char('w') if self.focus == Focus::ProcList => self.open_prompt(PromptKind::Watch),
 
                         _ => {}
                     },
@@ -1320,6 +1414,44 @@ impl App {
                 ),
                 innerlayout[1],
             );
+
+            if let Some(p) = &self.prompt {
+                let area = frame.area();
+                let w = 40.min(area.width.saturating_sub(4));
+                let h = (p.fields.len() as u16 + 4).min(area.height.saturating_sub(4));
+                let x = (area.width.saturating_sub(w)) / 2;
+                let y = (area.height.saturating_sub(h)) / 2;
+                let popup = ratatui::layout::Rect::new(x, y, w, h);
+                        
+                frame.render_widget(ratatui::widgets::Clear, popup);
+                        
+                let title = match p.kind {
+                    PromptKind::Leak => "leak",
+                    PromptKind::LeakM => "leak-m",
+                    PromptKind::Watch => "watch",
+                };
+            
+                let mut lines = vec![Line::raw(format!("proc: {}", p.proc_name)), Line::raw("")];
+                for (i, f) in p.fields.iter().enumerate() {
+                    let style = if i == p.selected {
+                        Style::default().bg(self.theme.highlight_bg).fg(self.theme.highlight_fg)
+                    } else {
+                        Style::default().fg(self.theme.text)
+                    };
+                    lines.push(Line::from(Span::styled(format!("{}: {}", f.label, f.value), style)));
+                }
+                lines.push(Line::raw(""));
+                lines.push(Line::raw("Tab next  Enter confirm  Esc cancel"));
+            
+                frame.render_widget(
+                    Paragraph::new(lines).block(
+                        Block::bordered()
+                            .border_style(Style::default().fg(self.theme.growth_warning))
+                            .title(title),
+                    ).style(Style::default().bg(self.theme.bg).fg(self.theme.text)),
+                    popup,
+                );
+            }
         }
 
         let footer_text = match self.input_mode {
