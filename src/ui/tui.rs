@@ -18,7 +18,6 @@ use crate::ui::theme::{Theme, ThemeKind};
 use crate::utils::formatting::{format_bytes, format_bytes_i64};
 use crate::utils::loader::load_heap_snapshot;
 use crate::utils::process::{TreeDisplayRow, build_process_tree, flatten_tree};
-use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -61,6 +60,7 @@ fn read_memory_bytes(pid: u32, address: usize, size: usize) -> Result<Vec<u8>, S
     mem.read_process_memory(pid, address, size)
 }
 
+#[derive(Default)]
 struct Settings {
     watch_interval_millis: u64,
     theme_kind: ThemeKind,
@@ -265,8 +265,98 @@ fn flatten_pointer_tree(
     }
 }
 
+#[derive(Default)]
+struct ViewState {
+    pub selected: usize,
+    pub scroll: usize,
+}
+
+impl ViewState {
+    fn next(&mut self, max: usize, wrap: bool) {
+        if max == 0 {
+            return;
+        }
+        if wrap {
+            self.selected = (self.selected + 1) % max;
+        } else if self.selected + 1 < max {
+            self.selected += 1;
+        }
+    }
+
+    fn prev(&mut self, max: usize, wrap: bool) {
+        if max == 0 {
+            return;
+        }
+        if wrap {
+            self.selected = (self.selected + max - 1) % max;
+        } else {
+            self.selected = self.selected.saturating_sub(1);
+        }
+    }
+}
+
+#[derive(Default)]
+struct ProcListView {
+    pub items: Vec<String>,
+    pub state: ViewState,
+}
+
+#[derive(Default)]
+struct AllocTreeView {
+    pub rows: Vec<TreeDisplayRow>,
+    pub collapsed: std::collections::HashSet<u32>,
+    pub total_memory: u64,
+    pub state: ViewState,
+}
+
+#[derive(Default)]
+struct PointerTreeView {
+    pub root: Option<usize>,
+    pub rows: Vec<PointerTreeRow>,
+    pub collapsed: std::collections::HashSet<usize>,
+    pub state: ViewState,
+}
+
+#[derive(Default)]
+struct HistogramView {
+    pub state: ViewState,
+}
+
+#[derive(Default)]
+struct HexDumpView {
+    pub address: Option<usize>,
+    pub bytes: Vec<u8>,
+    pub scroll: usize,
+}
+
+#[derive(Default)]
+struct SettingsView {
+    pub open: bool,
+    pub settings: Settings,
+    pub state: ViewState,
+}
+
+fn spawn_job<F>(tx: std::sync::mpsc::Sender<AppEvent>, job: F)
+where
+    F: FnOnce(std::sync::mpsc::Sender<AppEvent>) -> Result<(), String> + Send + 'static,
+{
+    std::thread::spawn(move || {
+        if let Err(e) = job(tx.clone()) {
+            tx.send(AppEvent::Output(Line::raw(format!("error: {}", e))))
+                .ok();
+        }
+    });
+}
+
 /// App holds the state of the application
 struct App {
+    proc_list: ProcListView,
+    alloc_tree: AllocTreeView,
+    pointer_tree: PointerTreeView,
+    histogram: HistogramView,
+    hex_dump: HexDumpView,
+    settings_view: SettingsView,
+
     /// Current value of the input box
     input: String,
     /// Position of cursor in the editor area.
@@ -286,7 +376,6 @@ struct App {
     alloc_table_page_size: usize, // rows per page, derived from panel height
     alloc_table_selected: usize,  // highlighted row
     heap_view_mode: HeapViewMode,
-    histogram_selected: usize,
     tx: std::sync::mpsc::Sender<AppEvent>,
     rx: std::sync::mpsc::Receiver<AppEvent>,
     is_loading: bool,
@@ -295,30 +384,11 @@ struct App {
     busy: std::sync::Arc<AtomicBool>,
     leak_deltas: Vec<LeakDelta>,
     theme: Theme,
-    tree_rows: Vec<TreeDisplayRow>,
-    tree_selected: usize,
-    tree_scroll: usize,
-    tree_collapsed: std::collections::HashSet<u32>,
-    tree_total_memory: u64,
-    proc_list: Vec<String>,
-    proc_list_selected: usize,
-    proc_list_scroll: usize,
     focus: Focus,
     prompt: Option<PromptState>,
     watch_target: Option<String>,
     watch_mode: Option<String>,
     swap_panels: bool,
-    settings: Settings,
-    settings_open: bool,
-    settings_selected: usize,
-    pointer_tree_root: Option<usize>,
-    pointer_tree_rows: Vec<PointerTreeRow>,
-    pointer_tree_selected: usize,
-    pointer_tree_scroll: usize,
-    pointer_tree_collapsed: std::collections::HashSet<usize>,
-    hex_dump_address: Option<usize>,
-    hex_dump_bytes: Vec<u8>,
-    hex_dump_scroll: usize,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HeapViewMode {
@@ -389,7 +459,6 @@ impl App {
             alloc_table_page_size: 0,
             alloc_table_selected: 0,
             heap_view_mode: HeapViewMode::Metrics,
-            histogram_selected: 0,
             tx,
             rx,
             is_loading: false,
@@ -398,30 +467,20 @@ impl App {
             busy: std::sync::Arc::new(AtomicBool::new(false)),
             leak_deltas: vec![],
             theme,
-            tree_rows: vec![],
-            tree_selected: 0,
-            tree_scroll: 0,
-            tree_collapsed: std::collections::HashSet::new(),
-            tree_total_memory: 0,
-            proc_list: vec![],
-            proc_list_selected: 0,
-            proc_list_scroll: 0,
+            proc_list: ProcListView::default(),
+            alloc_tree: AllocTreeView::default(),
+            pointer_tree: PointerTreeView::default(),
+            histogram: HistogramView::default(),
+            hex_dump: HexDumpView::default(),
+            settings_view: SettingsView {
+                settings,
+                ..Default::default()
+            },
             focus: Focus::AllocTable,
             prompt: None,
             watch_target: None,
             watch_mode: None,
             swap_panels: false,
-            settings,
-            settings_open: false,
-            settings_selected: 0,
-            pointer_tree_root: None,
-            pointer_tree_rows: vec![],
-            pointer_tree_selected: 0,
-            pointer_tree_scroll: 0,
-            pointer_tree_collapsed: std::collections::HashSet::new(),
-            hex_dump_address: None,
-            hex_dump_bytes: vec![],
-            hex_dump_scroll: 0,
         };
         app.push_message("mvis ready. type 'help' for commands.".into());
         app
@@ -551,21 +610,21 @@ impl App {
         let net_mb = net as f64 / (1024.0 * 1024.0);
         // Average per-sample MB rate (spanning count-1 intervals of ~2s each)
         let per_sample_rate = net_mb;
-        if per_sample_rate > self.settings.badge_critical_mb_s {
+        if per_sample_rate > self.settings_view.settings.badge_critical_mb_s {
             Some((
                 "◆ CRITICAL".into(),
                 Style::default()
                     .fg(self.theme.growth_critical)
                     .add_modifier(Modifier::BOLD | Modifier::RAPID_BLINK),
             ))
-        } else if per_sample_rate > self.settings.badge_warning_mb_s {
+        } else if per_sample_rate > self.settings_view.settings.badge_warning_mb_s {
             Some((
                 "▲ WARNING".into(),
                 Style::default()
                     .fg(self.theme.growth_critical)
                     .add_modifier(Modifier::BOLD),
             ))
-        } else if per_sample_rate > self.settings.badge_caution_mb_s {
+        } else if per_sample_rate > self.settings_view.settings.badge_caution_mb_s {
             Some((
                 "△ CAUTION".into(),
                 Style::default()
@@ -671,29 +730,24 @@ impl App {
         let args = vec![""];
         match commands::list_processes(args) {
             Ok(procs) => {
-                self.proc_list = procs;
-                if self.proc_list_selected >= self.proc_list.len() {
-                    self.proc_list_selected = self.proc_list.len().saturating_sub(1);
+                self.proc_list.items = procs;
+                if self.proc_list.state.selected >= self.proc_list.items.len() {
+                    self.proc_list.state.selected = self.proc_list.items.len().saturating_sub(1);
                 }
-                self.proc_list_scroll = self.proc_list_scroll.min(self.proc_list_selected);
+                self.proc_list.state.scroll = self
+                    .proc_list
+                    .state
+                    .scroll
+                    .min(self.proc_list.state.selected);
             }
             Err(e) => self.push_message(format!("Error: {e}")),
         }
     }
 
-    fn proc_list_select_next(&mut self) {
-        if self.proc_list_selected + 1 < self.proc_list.len() {
-            self.proc_list_selected += 1;
-        }
-    }
-
-    fn proc_list_select_prev(&mut self) {
-        self.proc_list_selected = self.proc_list_selected.saturating_sub(1);
-    }
-
     fn selected_proc_name(&self) -> Option<String> {
         self.proc_list
-            .get(self.proc_list_selected)
+            .items
+            .get(self.proc_list.state.selected)
             .and_then(|row| row.split_whitespace().nth(1))
             .filter(|s| !s.is_empty())
             .map(str::to_string)
@@ -717,39 +771,33 @@ impl App {
         if let Some(pid) = self.current_pid
             && let Some(tree) = build_process_tree(pid)
         {
-            self.tree_total_memory = tree.total_memory();
+            self.alloc_tree.total_memory = tree.total_memory();
             let mut rows = Vec::new();
-            flatten_tree(&tree, 0, &self.tree_collapsed, &mut rows);
-            self.tree_rows = rows;
-            if self.tree_selected >= self.tree_rows.len() {
-                self.tree_selected = self.tree_rows.len().saturating_sub(1);
+            flatten_tree(&tree, 0, &self.alloc_tree.collapsed, &mut rows);
+            self.alloc_tree.rows = rows;
+            if self.alloc_tree.state.selected >= self.alloc_tree.rows.len() {
+                self.alloc_tree.state.selected = self.alloc_tree.rows.len().saturating_sub(1);
             }
-            self.tree_scroll = self.tree_scroll.min(self.tree_selected);
+            self.alloc_tree.state.scroll = self
+                .alloc_tree
+                .state
+                .scroll
+                .min(self.alloc_tree.state.selected);
         }
     }
 
     fn tree_toggle_collapse(&mut self) {
-        if let Some(row) = self.tree_rows.get(self.tree_selected)
+        if let Some(row) = self.alloc_tree.rows.get(self.alloc_tree.state.selected)
             && row.has_children
         {
             let pid = row.pid;
-            if self.tree_collapsed.contains(&pid) {
-                self.tree_collapsed.remove(&pid);
+            if self.alloc_tree.collapsed.contains(&pid) {
+                self.alloc_tree.collapsed.remove(&pid);
             } else {
-                self.tree_collapsed.insert(pid);
+                self.alloc_tree.collapsed.insert(pid);
             }
             self.refresh_tree();
         }
-    }
-
-    fn tree_select_next(&mut self) {
-        if self.tree_selected + 1 < self.tree_rows.len() {
-            self.tree_selected += 1;
-        }
-    }
-
-    fn tree_select_prev(&mut self) {
-        self.tree_selected = self.tree_selected.saturating_sub(1);
     }
 
     fn insert_at_cursor(&mut self, text: &str) {
@@ -790,15 +838,6 @@ impl App {
                 .add_modifier(Modifier::BOLD),
         ))
     }
-    fn histogram_select_next(&mut self) {
-        if self.histogram_selected + 1 < SIZE_BUCKETS.len() {
-            self.histogram_selected += 1;
-        }
-    }
-
-    fn histogram_select_prev(&mut self) {
-        self.histogram_selected = self.histogram_selected.saturating_sub(1);
-    }
 
     /// Jump the Allocations table to the page containing the first (largest)
     /// block that falls in the currently selected histogram bucket, then
@@ -807,7 +846,7 @@ impl App {
         let Some(snap) = self.heap_history.last() else {
             return;
         };
-        let (_, lo, hi) = SIZE_BUCKETS[self.histogram_selected];
+        let (_, lo, hi) = SIZE_BUCKETS[self.histogram.state.selected];
 
         let mut used_blocks: Vec<_> = snap.blocks.iter().filter(|b| !b.is_free).collect();
         used_blocks.sort_by(|a, b| b.size.cmp(&a.size)); // same order as render_alloc_table
@@ -821,49 +860,40 @@ impl App {
         }
     }
 
-    fn settings_select_next(&mut self) {
-        self.settings_selected = (self.settings_selected + 1) % SETTINGS_ROW_COUNT;
-    }
-
-    fn settings_select_prev(&mut self) {
-        self.settings_selected =
-            (self.settings_selected + SETTINGS_ROW_COUNT - 1) % SETTINGS_ROW_COUNT;
-    }
-
     fn settings_adjust(&mut self, dir: i32) {
-        match self.settings_selected {
+        match self.settings_view.state.selected {
             0 => {
-                let v = self.settings.watch_interval_millis as i64 + dir as i64;
-                self.settings.watch_interval_millis = v.max(1) as u64;
+                let v = self.settings_view.settings.watch_interval_millis as i64 + dir as i64;
+                self.settings_view.settings.watch_interval_millis = v.max(1) as u64;
             }
             1 => {
-                self.settings.theme_kind = if dir > 0 {
-                    self.settings.theme_kind.next()
+                self.settings_view.settings.theme_kind = if dir > 0 {
+                    self.settings_view.settings.theme_kind.next()
                 } else {
-                    self.settings.theme_kind.prev()
+                    self.settings_view.settings.theme_kind.prev()
                 };
-                self.theme = self.settings.theme_kind.theme();
+                self.theme = self.settings_view.settings.theme_kind.theme();
             }
             2 => {
-                self.settings.badge_caution_mb_s =
-                    (self.settings.badge_caution_mb_s + dir as f64).max(0.1)
+                self.settings_view.settings.badge_caution_mb_s =
+                    (self.settings_view.settings.badge_caution_mb_s + dir as f64).max(0.1)
             }
             3 => {
-                self.settings.badge_warning_mb_s =
-                    (self.settings.badge_warning_mb_s + dir as f64).max(0.1)
+                self.settings_view.settings.badge_warning_mb_s =
+                    (self.settings_view.settings.badge_warning_mb_s + dir as f64).max(0.1)
             }
             4 => {
-                self.settings.badge_critical_mb_s =
-                    (self.settings.badge_critical_mb_s + dir as f64).max(0.1)
+                self.settings_view.settings.badge_critical_mb_s =
+                    (self.settings_view.settings.badge_critical_mb_s + dir as f64).max(0.1)
             }
-            5..=10 => self.settings_toggle_view(self.settings_selected - 5),
+            5..=10 => self.settings_toggle_view(self.settings_view.state.selected - 5),
             11 => {
                 let len = HEAP_VIEW_ORDER.len();
-                let mut idx = self.settings.default_view_idx;
+                let mut idx = self.settings_view.settings.default_view_idx;
                 for _ in 0..len {
                     idx = ((idx as i64 + dir as i64).rem_euclid(len as i64)) as usize;
-                    if self.settings.enabled_views[idx] {
-                        self.settings.default_view_idx = idx;
+                    if self.settings_view.settings.enabled_views[idx] {
+                        self.settings_view.settings.default_view_idx = idx;
                         break;
                     }
                 }
@@ -873,41 +903,52 @@ impl App {
     }
 
     fn settings_activate(&mut self) {
-        if (5..=10).contains(&self.settings_selected) {
-            self.settings_toggle_view(self.settings_selected - 5);
+        if (5..=10).contains(&self.settings_view.state.selected) {
+            self.settings_toggle_view(self.settings_view.state.selected - 5);
         } else {
             self.settings_adjust(1);
         }
     }
 
     fn settings_toggle_view(&mut self, idx: usize) {
-        let enabled_count = self.settings.enabled_views.iter().filter(|&&e| e).count();
-        if self.settings.enabled_views[idx] && enabled_count <= 1 {
+        let enabled_count = self
+            .settings_view
+            .settings
+            .enabled_views
+            .iter()
+            .filter(|&&e| e)
+            .count();
+        if self.settings_view.settings.enabled_views[idx] && enabled_count <= 1 {
             return; // never allow disabling the last remaining view
         }
-        self.settings.enabled_views[idx] = !self.settings.enabled_views[idx];
+        self.settings_view.settings.enabled_views[idx] =
+            !self.settings_view.settings.enabled_views[idx];
 
-        if !self.settings.enabled_views[self.settings.default_view_idx]
-            && let Some(next) = (0..HEAP_VIEW_ORDER.len()).find(|&i| self.settings.enabled_views[i])
+        if !self.settings_view.settings.enabled_views[self.settings_view.settings.default_view_idx]
+            && let Some(next) =
+                (0..HEAP_VIEW_ORDER.len()).find(|&i| self.settings_view.settings.enabled_views[i])
         {
-            self.settings.default_view_idx = next;
+            self.settings_view.settings.default_view_idx = next;
         }
-        if !self.settings.is_enabled(self.heap_view_mode) {
-            self.heap_view_mode = self.settings.next_enabled_view(self.heap_view_mode);
+        if !self.settings_view.settings.is_enabled(self.heap_view_mode) {
+            self.heap_view_mode = self
+                .settings_view
+                .settings
+                .next_enabled_view(self.heap_view_mode);
         }
     }
 
     fn enter_pointer_tree(&mut self, addr: usize) {
-        self.pointer_tree_root = Some(addr);
-        self.pointer_tree_selected = 0;
-        self.pointer_tree_scroll = 0;
-        self.pointer_tree_collapsed.clear();
+        self.pointer_tree.root = Some(addr);
+        self.pointer_tree.state.selected = 0;
+        self.pointer_tree.state.scroll = 0;
+        self.pointer_tree.collapsed.clear();
         self.heap_view_mode = HeapViewMode::PointerTree;
         self.refresh_pointer_tree();
     }
 
     fn refresh_pointer_tree(&mut self) {
-        let Some(root) = self.pointer_tree_root else {
+        let Some(root) = self.pointer_tree.root else {
             return;
         };
         let rows = {
@@ -921,39 +962,34 @@ impl App {
                 root,
                 &snap.pointer_edges,
                 &sizes,
-                &self.pointer_tree_collapsed,
+                &self.pointer_tree.collapsed,
                 &mut rows,
             );
             rows
         };
-        self.pointer_tree_rows = rows;
-        if self.pointer_tree_selected >= self.pointer_tree_rows.len() {
-            self.pointer_tree_selected = self.pointer_tree_rows.len().saturating_sub(1);
+        self.pointer_tree.rows = rows;
+        if self.pointer_tree.state.selected >= self.pointer_tree.rows.len() {
+            self.pointer_tree.state.selected = self.pointer_tree.rows.len().saturating_sub(1);
         }
-        self.pointer_tree_scroll = self.pointer_tree_scroll.min(self.pointer_tree_selected);
-    }
-
-    fn pointer_tree_select_next(&mut self) {
-        if self.pointer_tree_selected + 1 < self.pointer_tree_rows.len() {
-            self.pointer_tree_selected += 1;
-        }
-    }
-
-    fn pointer_tree_select_prev(&mut self) {
-        self.pointer_tree_selected = self.pointer_tree_selected.saturating_sub(1);
+        self.pointer_tree.state.scroll = self
+            .pointer_tree
+            .state
+            .scroll
+            .min(self.pointer_tree.state.selected);
     }
 
     fn pointer_tree_toggle_collapse(&mut self) {
         let target = self
-            .pointer_tree_rows
-            .get(self.pointer_tree_selected)
+            .pointer_tree
+            .rows
+            .get(self.pointer_tree.state.selected)
             .filter(|row| row.has_children)
             .map(|row| row.address);
         if let Some(addr) = target {
-            if self.pointer_tree_collapsed.contains(&addr) {
-                self.pointer_tree_collapsed.remove(&addr);
+            if self.pointer_tree.collapsed.contains(&addr) {
+                self.pointer_tree.collapsed.remove(&addr);
             } else {
-                self.pointer_tree_collapsed.insert(addr);
+                self.pointer_tree.collapsed.insert(addr);
             }
             self.refresh_pointer_tree();
         }
@@ -981,9 +1017,9 @@ impl App {
 
         match read_memory_bytes(pid, addr, size) {
             Ok(bytes) => {
-                self.hex_dump_address = Some(addr);
-                self.hex_dump_bytes = bytes;
-                self.hex_dump_scroll = 0;
+                self.hex_dump.address = Some(addr);
+                self.hex_dump.bytes = bytes;
+                self.hex_dump.scroll = 0;
                 self.heap_view_mode = HeapViewMode::HexDump;
                 self.push_message(format!(
                     "inspecting memory at 0x{:x} ({} bytes)",
@@ -1027,22 +1063,13 @@ impl App {
     fn handle_command(&mut self, parts: Vec<&str>) {
         match parts.clone().as_slice() {
             ["baseline", _proc] => {
-                let query = "scan".to_string();
                 let proc = _proc.to_string();
-                let mode = "-h".to_string();
-                let tx = self.tx.clone();
-                std::thread::spawn(move || {
-                    let parts_ref: Vec<&str> = vec![&query, &proc, &mode];
-                    match commands::scan(parts_ref) {
-                        Ok(result) => {
-                            tx.send(AppEvent::BaseLine(result)).ok();
-                            tx.send(AppEvent::Output(Line::raw("Baseline set".to_string())))
-                                .ok();
-                        }
-                        Err(e) => {
-                            tx.send(AppEvent::Output(Line::raw(e.to_string()))).ok();
-                        }
-                    };
+                spawn_job(self.tx.clone(), move |tx| {
+                    let result = commands::scan(vec!["scan", &proc, "-h"])?;
+                    tx.send(AppEvent::BaseLine(result)).ok();
+                    tx.send(AppEvent::Output(Line::raw("Baseline set".to_string())))
+                        .ok();
+                    Ok(())
                 });
             }
             ["diff", _proc] => {
@@ -1053,94 +1080,44 @@ impl App {
 
                 let baseline_blocks = self.current_baseline.as_ref().unwrap().blocks.clone();
                 let proc_name = _proc.to_string();
-                let query = "scan".to_string();
-                let mode = "-h".to_string();
 
-                let tx = self.tx.clone();
-                std::thread::spawn(move || {
-                    let parts_ref: Vec<&str> = vec![&query, &proc_name, &mode];
-                    match commands::scan(parts_ref) {
-                        Ok(result) => {
-                            tx.send(AppEvent::DiffResult(baseline_blocks, result)).ok();
-                        }
-                        Err(e) => {
-                            tx.send(AppEvent::Output(Line::from(Span::styled(
-                                format!("error: {}", e),
-                                Style::default().fg(crate::ui::theme::ThemeKind::default()
-                                    .theme()
-                                    .growth_critical),
-                            ))))
-                            .ok();
-                        }
-                    };
+                spawn_job(self.tx.clone(), move |tx| {
+                    let result = commands::scan(vec!["scan", &proc_name, "-h"])?;
+                    tx.send(AppEvent::DiffResult(baseline_blocks, result)).ok();
+                    Ok(())
                 });
             }
             ["diff", file_a, file_b] => {
                 let path_a = file_a.to_string();
                 let path_b = file_b.to_string();
-                let tx = self.tx.clone();
 
-                std::thread::spawn(move || {
-                    let result = (|| -> Result<(Vec<HeapBlock>, ScanResult), String> {
-                        let a = load_heap_snapshot(&path_a)
-                            .map_err(|e| format!("{}: {}", path_a, e))?;
-                        let b = load_heap_snapshot(&path_b)
-                            .map_err(|e| format!("{}: {}", path_b, e))?;
-                        Ok((a.blocks, b))
-                    })();
-
-                    match result {
-                        Ok((baseline_blocks, current)) => {
-                            tx.send(AppEvent::DiffResult(baseline_blocks, current)).ok();
-                        }
-                        Err(e) => {
-                            tx.send(AppEvent::Output(Line::raw(format!("error: {e}"))))
-                                .ok();
-                        }
-                    }
+                spawn_job(self.tx.clone(), move |tx| {
+                    let a =
+                        load_heap_snapshot(&path_a).map_err(|e| format!("{}: {}", path_a, e))?;
+                    let b =
+                        load_heap_snapshot(&path_b).map_err(|e| format!("{}: {}", path_b, e))?;
+                    tx.send(AppEvent::DiffResult(a.blocks, b)).ok();
+                    Ok(())
                 });
             }
             ["save", _proc, _file] => {
-                let query = "scan".to_string();
                 let proc = _proc.to_string();
-                let mode = "-h".to_string();
                 let path = _file.to_string();
-                let tx = self.tx.clone();
 
                 self.push_message(format!("scanning {} to save as {}...", proc, path));
 
-                std::thread::spawn(move || {
-                    let parts_ref: Vec<&str> = vec![&query, &proc, &mode];
-                    match commands::scan(parts_ref) {
-                        Ok(result) => match serde_json::to_string_pretty(&result) {
-                            Ok(json) => match std::fs::write(&path, json) {
-                                Ok(()) => {
-                                    tx.send(AppEvent::Output(Line::raw(format!(
-                                        "saved snapshot to {}",
-                                        path
-                                    ))))
-                                    .ok();
-                                }
-                                Err(e) => {
-                                    tx.send(AppEvent::Output(Line::raw(format!(
-                                        "failed to write {}: {}",
-                                        path, e
-                                    ))))
-                                    .ok();
-                                }
-                            },
-                            Err(e) => {
-                                tx.send(AppEvent::Output(Line::raw(format!(
-                                    "failed to serialize snapshot: {}",
-                                    e
-                                ))))
-                                .ok();
-                            }
-                        },
-                        Err(e) => {
-                            tx.send(AppEvent::Output(Line::raw(e.to_string()))).ok();
-                        }
-                    };
+                spawn_job(self.tx.clone(), move |tx| {
+                    let result = commands::scan(vec!["scan", &proc, "-h"])?;
+                    let json = serde_json::to_string_pretty(&result)
+                        .map_err(|e| format!("failed to serialize snapshot: {}", e))?;
+                    std::fs::write(&path, json)
+                        .map_err(|e| format!("failed to write {}: {}", path, e))?;
+                    tx.send(AppEvent::Output(Line::raw(format!(
+                        "saved snapshot to {}",
+                        path
+                    ))))
+                    .ok();
+                    Ok(())
                 });
             }
             ["clearbaseline"] => {
@@ -1152,7 +1129,7 @@ impl App {
                 let tx = self.tx.clone();
                 let busy = self.busy.clone();
 
-                let interval = self.settings.watch_interval_millis.max(100);
+                let interval = self.settings_view.settings.watch_interval_millis.max(100);
 
                 // build the command string to dispatch
                 let cmd = match mode.as_str() {
@@ -1238,11 +1215,10 @@ impl App {
                 let proc_name = _proc.to_string();
                 let secs = _secs.to_string();
                 let samples = _samples.to_string();
-                let tx = self.tx.clone();
 
                 self.push_message(format!("starting leak-m for {}...", proc_name));
 
-                std::thread::spawn(move || {
+                spawn_job(self.tx.clone(), move |tx| {
                     let (line_tx, line_rx) = std::sync::mpsc::channel::<Line<'static>>();
                     let tx2 = tx.clone();
 
@@ -1267,15 +1243,16 @@ impl App {
                     while let Ok(line) = line_rx.recv() {
                         tx.send(AppEvent::Output(line)).ok();
                     }
+                    Ok(())
                 });
             }
             ["leak", _proc, _secs] => {
                 let proc_name = _proc.to_string();
                 let parts_owned: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
-                let tx = self.tx.clone();
                 self.is_loading = true;
                 self.loading_msg = format!("scanning leak for {}...", proc_name);
-                std::thread::spawn(move || {
+
+                spawn_job(self.tx.clone(), move |tx| {
                     let parts_ref: Vec<&str> = parts_owned.iter().map(|s| s.as_str()).collect();
                     match commands::leak(parts_ref) {
                         Ok(result) => {
@@ -1288,35 +1265,36 @@ impl App {
                             tx.send(AppEvent::Output(Line::raw(e.to_string()))).ok();
                         }
                     };
+                    Ok(())
                 });
             }
             ["scan", _proc, "-h"] | ["scan", _proc, "-h", "-g"] => {
                 let proc_name = _proc.to_string();
                 let parts_owned: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
-                let tx = self.tx.clone();
                 self.is_loading = true;
                 self.loading_msg = format!("scanning heap for {}...", proc_name);
                 self.push_message(self.loading_msg.clone());
 
-                std::thread::spawn(move || {
+                spawn_job(self.tx.clone(), move |tx| {
                     let parts_ref: Vec<&str> = parts_owned.iter().map(|s| s.as_str()).collect();
                     match commands::scan(parts_ref) {
                         Ok(result) => tx.send(AppEvent::ScanResult(result)).ok(),
                         Err(e) => tx.send(AppEvent::ScanError(e)).ok(),
                     };
+                    Ok(())
                 });
             }
             ["scan", _proc, "-a"] | ["scan", _proc, "-v"] => {
                 let parts_owned: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
-                let tx = self.tx.clone();
                 self.push_message(format!("scanning {}...", _proc));
 
-                std::thread::spawn(move || {
+                spawn_job(self.tx.clone(), move |tx| {
                     let parts_ref: Vec<&str> = parts_owned.iter().map(|s| s.as_str()).collect();
                     match commands::scan(parts_ref) {
                         Ok(result) => tx.send(AppEvent::ScanResult(result)).ok(),
                         Err(e) => tx.send(AppEvent::ScanError(e)).ok(),
                     };
+                    Ok(())
                 });
             }
             ["list"] => match commands::list_processes(parts) {
@@ -1348,7 +1326,7 @@ impl App {
                 {
                     Some(p)
                 } else {
-                    self.proc_list.iter().find_map(|line| {
+                    self.proc_list.items.iter().find_map(|line| {
                         let tokens: Vec<&str> = line.split_whitespace().collect();
                         if tokens.get(1) == Some(&proc_input.as_str())
                             || tokens.iter().any(|&t| t == proc_input)
@@ -1405,9 +1383,9 @@ impl App {
                         }
                         self.push_line(Line::raw("─".repeat(50)));
 
-                        self.hex_dump_address = Some(addr);
-                        self.hex_dump_bytes = bytes;
-                        self.hex_dump_scroll = 0;
+                        self.hex_dump.address = Some(addr);
+                        self.hex_dump.bytes = bytes;
+                        self.hex_dump.scroll = 0;
                         self.heap_view_mode = HeapViewMode::HexDump;
                     }
                     Err(e) => {
@@ -1678,12 +1656,16 @@ impl App {
                 continue; // skip normal-mode key handling this iteration
             }
 
-            if self.settings_open {
+            if self.settings_view.open {
                 if let Some(key) = event::read()?.as_key_press_event() {
                     match key.code {
-                        KeyCode::Esc | KeyCode::Char('S') => self.settings_open = false,
-                        KeyCode::Char('j') | KeyCode::Down => self.settings_select_next(),
-                        KeyCode::Char('k') | KeyCode::Up => self.settings_select_prev(),
+                        KeyCode::Esc | KeyCode::Char('S') => self.settings_view.open = false,
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            self.settings_view.state.next(SETTINGS_ROW_COUNT, true)
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            self.settings_view.state.prev(SETTINGS_ROW_COUNT, true)
+                        }
                         KeyCode::Char('h') | KeyCode::Left => self.settings_adjust(-1),
                         KeyCode::Char('l') | KeyCode::Right => self.settings_adjust(1),
                         KeyCode::Enter => self.settings_activate(),
@@ -1701,13 +1683,15 @@ impl App {
                         KeyCode::Char('e') => self.input_mode = InputMode::Editing,
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('t') => self.set_focus(Focus::Tree),
-                        KeyCode::Char('S') => self.settings_open = !self.settings_open,
+                        KeyCode::Char('S') => self.settings_view.open = !self.settings_view.open,
                         KeyCode::Char('x') => self.swap_panels = !self.swap_panels,
                         KeyCode::Up => self.scroll_up(),
                         KeyCode::Down => self.scroll_down(),
                         KeyCode::Tab => {
-                            self.heap_view_mode =
-                                self.settings.next_enabled_view(self.heap_view_mode);
+                            self.heap_view_mode = self
+                                .settings_view
+                                .settings
+                                .next_enabled_view(self.heap_view_mode);
                         }
                         KeyCode::Char('p') => self.set_focus(Focus::ProcList),
                         KeyCode::Char('r') if self.focus == Focus::ProcList => {
@@ -1716,25 +1700,45 @@ impl App {
                         KeyCode::Char(']') => self.next_page(),
                         KeyCode::Char('[') => self.prev_page(),
                         KeyCode::Char('j') => match self.focus {
-                            Focus::Tree => self.tree_select_next(),
-                            Focus::ProcList => self.proc_list_select_next(),
+                            Focus::Tree => self
+                                .alloc_tree
+                                .state
+                                .next(self.alloc_tree.rows.len(), false),
+                            Focus::ProcList => {
+                                self.proc_list.state.next(self.proc_list.items.len(), false)
+                            }
                             Focus::AllocTable => match self.heap_view_mode {
-                                HeapViewMode::Histogram => self.histogram_select_next(),
-                                HeapViewMode::PointerTree => self.pointer_tree_select_next(),
+                                HeapViewMode::Histogram => {
+                                    self.histogram.state.next(SIZE_BUCKETS.len(), false)
+                                }
+                                HeapViewMode::PointerTree => self
+                                    .pointer_tree
+                                    .state
+                                    .next(self.pointer_tree.rows.len(), false),
                                 HeapViewMode::HexDump => {
-                                    self.hex_dump_scroll = self.hex_dump_scroll.saturating_add(1);
+                                    self.hex_dump.scroll = self.hex_dump.scroll.saturating_add(1);
                                 }
                                 _ => self.select_next_row(),
                             },
                         },
                         KeyCode::Char('k') => match self.focus {
-                            Focus::Tree => self.tree_select_prev(),
-                            Focus::ProcList => self.proc_list_select_prev(),
+                            Focus::Tree => self
+                                .alloc_tree
+                                .state
+                                .prev(self.alloc_tree.rows.len(), false),
+                            Focus::ProcList => {
+                                self.proc_list.state.prev(self.proc_list.items.len(), false)
+                            }
                             Focus::AllocTable => match self.heap_view_mode {
-                                HeapViewMode::Histogram => self.histogram_select_prev(),
-                                HeapViewMode::PointerTree => self.pointer_tree_select_prev(),
+                                HeapViewMode::Histogram => {
+                                    self.histogram.state.prev(SIZE_BUCKETS.len(), false)
+                                }
+                                HeapViewMode::PointerTree => self
+                                    .pointer_tree
+                                    .state
+                                    .prev(self.pointer_tree.rows.len(), false),
                                 HeapViewMode::HexDump => {
-                                    self.hex_dump_scroll = self.hex_dump_scroll.saturating_sub(1);
+                                    self.hex_dump.scroll = self.hex_dump.scroll.saturating_sub(1);
                                 }
                                 _ => self.select_prev_row(),
                             },
@@ -1989,9 +1993,9 @@ impl App {
 
         if self.focus == Focus::Tree {
             let tree_lines = render_process_tree(
-                &self.tree_rows,
-                self.tree_selected,
-                self.tree_total_memory,
+                &self.alloc_tree.rows,
+                self.alloc_tree.state.selected,
+                self.alloc_tree.total_memory,
                 &self.theme,
             );
 
@@ -1999,10 +2003,13 @@ impl App {
             let header_footer = 4usize;
             let visible_rows = inner_height.saturating_sub(header_footer);
             if visible_rows > 0 {
-                if self.tree_selected < self.tree_scroll {
-                    self.tree_scroll = self.tree_selected;
-                } else if self.tree_selected >= self.tree_scroll + visible_rows {
-                    self.tree_scroll = self.tree_selected + 1 - visible_rows;
+                if self.alloc_tree.state.selected < self.alloc_tree.state.scroll {
+                    self.alloc_tree.state.scroll = self.alloc_tree.state.selected;
+                } else if self.alloc_tree.state.selected
+                    >= self.alloc_tree.state.scroll + visible_rows
+                {
+                    self.alloc_tree.state.scroll =
+                        self.alloc_tree.state.selected + 1 - visible_rows;
                 }
             }
 
@@ -2014,29 +2021,32 @@ impl App {
                             .title("Process Tree [t to toggle]"),
                     )
                     .style(Style::default().bg(self.theme.bg).fg(self.theme.cyan))
-                    .scroll((self.tree_scroll as u16, 0)),
+                    .scroll((self.alloc_tree.state.scroll as u16, 0)),
                 processlayout[1],
             );
         } else {
-            if self.proc_list.is_empty() {
+            if self.proc_list.items.is_empty() {
                 self.refresh_proc_list();
             }
 
             let inner_height = processlayout[1].height.saturating_sub(2) as usize; // minus borders
             if inner_height > 0 {
-                if self.proc_list_selected < self.proc_list_scroll {
-                    self.proc_list_scroll = self.proc_list_selected;
-                } else if self.proc_list_selected >= self.proc_list_scroll + inner_height {
-                    self.proc_list_scroll = self.proc_list_selected + 1 - inner_height;
+                if self.proc_list.state.selected < self.proc_list.state.scroll {
+                    self.proc_list.state.scroll = self.proc_list.state.selected;
+                } else if self.proc_list.state.selected
+                    >= self.proc_list.state.scroll + inner_height
+                {
+                    self.proc_list.state.scroll = self.proc_list.state.selected + 1 - inner_height;
                 }
             }
 
             let list_lines: Vec<Line> = self
                 .proc_list
+                .items
                 .iter()
                 .enumerate()
                 .map(|(i, p)| {
-                    if self.focus == Focus::ProcList && i == self.proc_list_selected {
+                    if self.focus == Focus::ProcList && i == self.proc_list.state.selected {
                         Line::from(Span::styled(
                             p.clone(),
                             Style::default()
@@ -2063,7 +2073,7 @@ impl App {
                             .title(title),
                     )
                     .style(Style::default().bg(self.theme.bg).fg(self.theme.cyan))
-                    .scroll((self.proc_list_scroll as u16, 0)),
+                    .scroll((self.proc_list.state.scroll as u16, 0)),
                 processlayout[1],
             );
         }
@@ -2184,32 +2194,34 @@ impl App {
                             &self.theme,
                         ),
                         HeapViewMode::Histogram => {
-                            render_histogram(snap, w, self.histogram_selected, &self.theme)
+                            render_histogram(snap, w, self.histogram.state.selected, &self.theme)
                         }
                         HeapViewMode::Chart => unreachable!(),
                         HeapViewMode::PointerTree => {
                             let visible_rows = panel_height.saturating_sub(6);
                             if visible_rows > 0 {
-                                if self.pointer_tree_selected < self.pointer_tree_scroll {
-                                    self.pointer_tree_scroll = self.pointer_tree_selected;
-                                } else if self.pointer_tree_selected
-                                    >= self.pointer_tree_scroll + visible_rows
+                                if self.pointer_tree.state.selected < self.pointer_tree.state.scroll
                                 {
-                                    self.pointer_tree_scroll =
-                                        self.pointer_tree_selected + 1 - visible_rows;
+                                    self.pointer_tree.state.scroll =
+                                        self.pointer_tree.state.selected;
+                                } else if self.pointer_tree.state.selected
+                                    >= self.pointer_tree.state.scroll + visible_rows
+                                {
+                                    self.pointer_tree.state.scroll =
+                                        self.pointer_tree.state.selected + 1 - visible_rows;
                                 }
                             }
                             render_pointer_tree(
-                                self.pointer_tree_root,
-                                &self.pointer_tree_rows,
-                                self.pointer_tree_selected,
+                                self.pointer_tree.root,
+                                &self.pointer_tree.rows,
+                                self.pointer_tree.state.selected,
                                 &self.theme,
                             )
                         }
                         HeapViewMode::HexDump => render_hex_dump(
-                            self.hex_dump_address,
-                            &self.hex_dump_bytes,
-                            self.hex_dump_scroll,
+                            self.hex_dump.address,
+                            &self.hex_dump.bytes,
+                            self.hex_dump.scroll,
                             &self.theme,
                         ),
                     }
@@ -2217,7 +2229,7 @@ impl App {
             };
 
             let heap_scroll = match self.heap_view_mode {
-                HeapViewMode::PointerTree => self.pointer_tree_scroll as u16,
+                HeapViewMode::PointerTree => self.pointer_tree.state.scroll as u16,
                 _ => 0,
             };
 
@@ -2376,7 +2388,7 @@ impl App {
             footer,
         );
 
-        if self.settings_open {
+        if self.settings_view.open {
             let area = frame.area();
             let w = 56.min(area.width.saturating_sub(4));
             let h = (SETTINGS_ROW_COUNT as u16 + 5).min(area.height.saturating_sub(4));
@@ -2386,7 +2398,7 @@ impl App {
             frame.render_widget(ratatui::widgets::Clear, popup);
 
             let row_style = |i: usize, theme: &Theme| {
-                if i == self.settings_selected {
+                if i == self.settings_view.state.selected {
                     Style::default()
                         .bg(theme.highlight_bg)
                         .fg(theme.highlight_fg)
@@ -2399,38 +2411,41 @@ impl App {
                 Line::from(Span::styled(
                     format!(
                         "{:<22} {}",
-                        "Watch interval (ms)", self.settings.watch_interval_millis
+                        "Watch interval (ms)", self.settings_view.settings.watch_interval_millis
                     ),
                     row_style(0, &self.theme),
                 )),
                 Line::from(Span::styled(
-                    format!("{:<22} {:?}", "Theme", self.settings.theme_kind),
+                    format!(
+                        "{:<22} {:?}",
+                        "Theme", self.settings_view.settings.theme_kind
+                    ),
                     row_style(1, &self.theme),
                 )),
                 Line::from(Span::styled(
                     format!(
                         "{:<22} {:.1}",
-                        "Badge: Caution MB/s", self.settings.badge_caution_mb_s
+                        "Badge: Caution MB/s", self.settings_view.settings.badge_caution_mb_s
                     ),
                     row_style(2, &self.theme),
                 )),
                 Line::from(Span::styled(
                     format!(
                         "{:<22} {:.1}",
-                        "Badge: Warning MB/s", self.settings.badge_warning_mb_s
+                        "Badge: Warning MB/s", self.settings_view.settings.badge_warning_mb_s
                     ),
                     row_style(3, &self.theme),
                 )),
                 Line::from(Span::styled(
                     format!(
                         "{:<22} {:.1}",
-                        "Badge: Critical MB/s", self.settings.badge_critical_mb_s
+                        "Badge: Critical MB/s", self.settings_view.settings.badge_critical_mb_s
                     ),
                     row_style(4, &self.theme),
                 )),
             ];
             for (i, mode) in HEAP_VIEW_ORDER.iter().enumerate() {
-                let mark = if self.settings.enabled_views[i] {
+                let mark = if self.settings_view.settings.enabled_views[i] {
                     "[x]"
                 } else {
                     "[ ]"
@@ -2448,7 +2463,7 @@ impl App {
                 format!(
                     "{:<22} {}",
                     "Default view",
-                    heap_view_label(self.settings.default_view())
+                    heap_view_label(self.settings_view.settings.default_view())
                 ),
                 row_style(9, &self.theme),
             )));
@@ -3021,6 +3036,7 @@ fn render_histogram(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::collections::HashSet;
 
     use super::*;
 
@@ -3386,37 +3402,37 @@ mod tests {
     #[test]
     fn tree_select_next_increments() {
         let mut app = make_app();
-        app.tree_rows = make_tree_rows();
-        app.tree_selected = 0;
-        app.tree_select_next();
-        assert_eq!(app.tree_selected, 1);
+        app.alloc_tree.rows = make_tree_rows();
+        app.alloc_tree.state.selected = 0;
+        app.alloc_tree.state.next(app.alloc_tree.rows.len(), false);
+        assert_eq!(app.alloc_tree.state.selected, 1);
     }
 
     #[test]
     fn tree_select_next_clamps_at_end() {
         let mut app = make_app();
-        app.tree_rows = make_tree_rows();
-        app.tree_selected = 2;
-        app.tree_select_next();
-        assert_eq!(app.tree_selected, 2);
+        app.alloc_tree.rows = make_tree_rows();
+        app.alloc_tree.state.selected = 2;
+        app.alloc_tree.state.next(app.alloc_tree.rows.len(), false);
+        assert_eq!(app.alloc_tree.state.selected, 2);
     }
 
     #[test]
     fn tree_select_prev_decrements() {
         let mut app = make_app();
-        app.tree_rows = make_tree_rows();
-        app.tree_selected = 2;
-        app.tree_select_prev();
-        assert_eq!(app.tree_selected, 1);
+        app.alloc_tree.rows = make_tree_rows();
+        app.alloc_tree.state.selected = 2;
+        app.alloc_tree.state.prev(app.alloc_tree.rows.len(), false);
+        assert_eq!(app.alloc_tree.state.selected, 1);
     }
 
     #[test]
     fn tree_select_prev_does_not_underflow() {
         let mut app = make_app();
-        app.tree_rows = make_tree_rows();
-        app.tree_selected = 0;
-        app.tree_select_prev();
-        assert_eq!(app.tree_selected, 0);
+        app.alloc_tree.rows = make_tree_rows();
+        app.alloc_tree.state.selected = 0;
+        app.alloc_tree.state.prev(app.alloc_tree.rows.len(), false);
+        assert_eq!(app.alloc_tree.state.selected, 0);
     }
 
     #[test]
