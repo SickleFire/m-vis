@@ -1,4 +1,13 @@
 # Changelog
+## [0.6.0-rc1] - 2026-08-31
+### Added
+- **Reference Pointer Tree** (Linux and Windows)
+- **Hex Dump View** 
+
+### Fixed
+- **Pointer references now available for Linux**
+
+
 ## [0.5.0] - 2026-07-30
 ### Added
 - added **CI/CD commands**: `--warmup` `--growth-rate` `--sample-interval` `--diff-only`
