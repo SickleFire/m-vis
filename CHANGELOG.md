@@ -1,5 +1,5 @@
 # Changelog
-## [0.6.0-rc1] - 2026-08-31
+## [0.6.0-rc1] - 2026-08-30
 ### Added
 - **Reference Pointer Tree** (Linux and Windows)
 - **Hex Dump View** 
