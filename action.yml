@@ -137,24 +137,34 @@ runs:
             exit 1
           fi
         fi
+        
         ARCH=$(uname -m)
         if [ "$ARCH" = "arm64" ]; then
           ASSET="mvis-macos-aarch64"
         else
           ASSET="mvis-macos-x86_64"
         fi
+        
         mkdir -p "$RUNNER_TEMP/mvis-bin"
-        echo "Downloading $ASSET version: $VERSION"
+        echo "Downloading $ASSET version: $VERSION for arch: $ARCH"
+        
+        DOWNLOAD_URL="https://github.com/SickleFire/m-vis/releases/download/${VERSION}/${ASSET}"
+        echo "URL: $DOWNLOAD_URL"
+        
         if ! curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
-          "https://github.com/SickleFire/m-vis/releases/download/${VERSION}/${ASSET}" \
+          -w "\nHTTP Status: %{http_code}\n" \
+          "$DOWNLOAD_URL" \
           -o "$RUNNER_TEMP/mvis-bin/mvis"; then
-          echo "::error::Failed to download $ASSET"
+          echo "::error::Failed to download $ASSET from $DOWNLOAD_URL"
           exit 1
         fi
+        
         if [ ! -f "$RUNNER_TEMP/mvis-bin/mvis" ]; then
-          echo "::error::Downloaded file not found"
+          echo "::error::Downloaded file not found at $RUNNER_TEMP/mvis-bin/mvis"
+          ls -la "$RUNNER_TEMP/mvis-bin/" || echo "Directory doesn't exist"
           exit 1
         fi
+        
         chmod +x "$RUNNER_TEMP/mvis-bin/mvis"
         echo "$RUNNER_TEMP/mvis-bin" >> $GITHUB_PATH
 
