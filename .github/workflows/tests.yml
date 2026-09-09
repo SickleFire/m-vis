@@ -125,7 +125,7 @@ jobs:
         continue-on-error: true
         uses: ./
         with:
-          version: v0.5.0-rc1
+          version: latest
           spawn: ${{ steps.bin.outputs.path }}
           max-memory: 10
           duration: 30
@@ -145,7 +145,7 @@ jobs:
         continue-on-error: true
         uses: ./
         with:
-          version: v0.5.0-rc1
+          version: latest
           spawn: ${{ steps.bin.outputs.path }}
           max-memory: 4096
           duration: 3
@@ -169,7 +169,7 @@ jobs:
         continue-on-error: true
         uses: ./
         with:
-          version: v0.5.0-rc1
+          version: latest
           spawn: ${{ steps.bin.outputs.path }}
           leak-check: true
           duration: 15
