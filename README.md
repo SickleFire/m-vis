@@ -19,9 +19,10 @@ m-vis is built in Rust to provide native, blazing fast performance without overh
 
 ```mermaid
 graph TD
-    subgraph UI [User Interfaces]
+    subgraph UI [User Interfaces & Automation]
         CLI[Command Line Interface]
         TUI[Terminal User Interface]
+        CI[CI/CD Mode / GitHub Action]
     end
 
     subgraph Core [m-vis Core Engine]
@@ -82,6 +83,7 @@ mvis leak notepad 10
 - **DLL Tracking**: Monitor and list all dynamic libraries (DLLs/SOs/Dylibs) loaded by a target.
 - **Real time Memory Leak Detection**: Identify and monitor processes with growing, unreleased memory allocations.
 - **Leak Delta Chart**: m-vis includes a real time leak delta chart that visualizes memory allocation trends over time directly in the TUI.
+- **CI/CD Integration**: Automated memory audits, growth rate monitoring, and export reports (JSON/CSV/JUnit) via `mvis ci` and GitHub Actions.
 - **Raw Memory Inspection**: Dump and inspect raw hex/ASCII bytes around arbitrary memory addresses in live processes.
 - **Universal OS Support**: 100% native support for Windows, Linux, and macOS.
 
@@ -151,6 +153,9 @@ mvis scan notepad.exe -h
 
 # detect leaks
 mvis leak notepad.exe 10
+
+# run automated CI checks & leak audits
+mvis ci --spawn ./my_service --leak-check --max-memory 100M
 
 # dump raw memory bytes
 mvis dump notepad.exe 0x7ff123456780 128
