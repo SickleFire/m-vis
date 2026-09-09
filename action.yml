@@ -131,8 +131,8 @@ runs:
         VERSION="${{ inputs.version }}"
         if [ "$VERSION" = "latest" ]; then
           VERSION=$(curl -sf https://api.github.com/repos/SickleFire/m-vis/releases/latest \
-            | grep '"tag_name"' | cut -d '"' -f 4)
-          if [ -z "$VERSION" ]; then
+            | jq -r '.tag_name')
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
             echo "::error::Failed to fetch latest release version"
             exit 1
           fi
@@ -148,14 +148,11 @@ runs:
         mkdir -p "$RUNNER_TEMP/mvis-bin"
         echo "Downloading $ASSET version: $VERSION for arch: $ARCH"
         
-        DOWNLOAD_URL="https://github.com/SickleFire/m-vis/releases/download/${VERSION}/${ASSET}"
-        echo "URL: $DOWNLOAD_URL"
-        
-        if ! curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
-          -w "\nHTTP Status: %{http_code}\n" \
-          "$DOWNLOAD_URL" \
+        # Use -L to follow redirects
+        if ! curl -fsSL -L --retry 3 --retry-delay 2 --retry-all-errors \
+          "https://github.com/SickleFire/m-vis/releases/download/${VERSION}/${ASSET}" \
           -o "$RUNNER_TEMP/mvis-bin/mvis"; then
-          echo "::error::Failed to download $ASSET from $DOWNLOAD_URL"
+          echo "::error::Failed to download $ASSET from https://github.com/SickleFire/m-vis/releases/download/${VERSION}/${ASSET}"
           exit 1
         fi
         
