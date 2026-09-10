@@ -211,7 +211,10 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
     let mem = match std::fs::File::open(&mem_path) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("[mvis] walk_heap_granular: failed to open {}: {}", mem_path, e);
+            eprintln!(
+                "[mvis] walk_heap_granular: failed to open {}: {}",
+                mem_path, e
+            );
             return blocks;
         }
     };
@@ -234,7 +237,10 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
     let (_, mut current_size_field) = match read_header(&mem, addr) {
         Ok(h) => h,
         Err(e) => {
-            eprintln!("[mvis] walk_heap_granular: failed to read first chunk at 0x{:x}: {}", addr, e);
+            eprintln!(
+                "[mvis] walk_heap_granular: failed to read first chunk at 0x{:x}: {}",
+                addr, e
+            );
             return blocks;
         }
     };
