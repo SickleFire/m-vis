@@ -163,7 +163,7 @@ pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
 
 /// Reads `/proc/<pid>/smaps` (or `/proc/<pid>/mem`) and returns individual glibc heap chunks.
 pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
-    use std::io::{Read, Seek, SeekFrom};
+    use std::os::unix::fs::FileExt;
 
     let mut blocks = Vec::new();
 
@@ -208,19 +208,21 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
     }
 
     let mem_path = format!("/proc/{}/mem", pid);
-    let mut mem = match std::fs::File::open(&mem_path) {
+    let mem = match std::fs::File::open(&mem_path) {
         Ok(f) => f,
-        Err(_) => return blocks,
+        Err(e) => {
+            eprintln!("[mvis] walk_heap_granular: failed to open {}: {}", mem_path, e);
+            return blocks;
+        }
     };
 
     const HEADER_SIZE: usize = 16;
     const PREV_INUSE: usize = 0x1;
     const SIZE_MASK: usize = !0x7; // clears the low 3 flag bits, keeps real size
 
-    let read_header = |mem: &mut std::fs::File, addr: usize| -> io::Result<(usize, usize)> {
+    let read_header = |mem: &std::fs::File, addr: usize| -> io::Result<(usize, usize)> {
         let mut buf = [0u8; HEADER_SIZE];
-        mem.seek(SeekFrom::Start(addr as u64))?;
-        mem.read_exact(&mut buf)?;
+        mem.read_at(&mut buf, addr as u64)?;
         let prev_size = usize::from_le_bytes(buf[0..8].try_into().unwrap());
         let size = usize::from_le_bytes(buf[8..16].try_into().unwrap());
         Ok((prev_size, size))
@@ -229,9 +231,12 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
     let mut addr = heap_start;
 
     // read the very first chunk so we have something to inspect each loop
-    let (_, mut current_size_field) = match read_header(&mut mem, addr) {
+    let (_, mut current_size_field) = match read_header(&mem, addr) {
         Ok(h) => h,
-        Err(_) => return blocks, // can't read heap memory at all
+        Err(e) => {
+            eprintln!("[mvis] walk_heap_granular: failed to read first chunk at 0x{:x}: {}", addr, e);
+            return blocks;
+        }
     };
 
     loop {
@@ -253,7 +258,7 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
 
         // read the NEXT chunk's header, because its PREV_INUSE bit tells us
         // whether THIS chunk (at `addr`) is free or in use
-        let (_, next_size_field) = match read_header(&mut mem, next_addr) {
+        let (_, next_size_field) = match read_header(&mem, next_addr) {
             Ok(h) => h,
             Err(_) => break,
         };
