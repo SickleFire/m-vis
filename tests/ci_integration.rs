@@ -6,10 +6,7 @@ fn mvis() -> Command {
 }
 
 fn leak_binary() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("test_programs")
-        .join("leak_test_c.exe")
+    PathBuf::from(env!("OUT_DIR")).join("leak_test_c.exe")
 }
 
 #[test]
