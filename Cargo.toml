@@ -1,9 +1,18 @@
 [package]
 name = "mvis"
-version = "0.5.0"
+version = "0.6.0-rc2"
+description = "A terminal memory visualizer and debugger built with Ratatui"
 license = "MIT"
+repository = "https://github.com/SickleFire/m-vis"
+readme = "README.md"
+keywords = ["tui", "memory", "ratatui", "cli", "debugger"]
+categories = ["command-line-utilities", "development-tools::debugging"]
 edition = "2024"
 default-run = "mvis"
+
+[[bin]]
+name = "mvis"
+path = "src/main.rs"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
