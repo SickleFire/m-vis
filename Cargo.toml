@@ -1,6 +1,6 @@
 [package]
 name = "mvis"
-version = "0.6.0-rc2"
+version = "0.6.0"
 description = "A terminal memory visualizer and debugger built with Ratatui"
 license = "MIT"
 repository = "https://github.com/SickleFire/m-vis"
