@@ -179,6 +179,9 @@ is given, shows help for that specific command. Also available as
 .B \-h
 or
 .BR \-\-help .
+Special subcommands include
+.BR errors ,
+which displays a reference of all error codes mvis can produce.
 .TP
 .B version
 Display the version string. Also available as
@@ -296,6 +299,40 @@ entitlement may be required to inspect other processes.
 The
 .B wintrace
 command is only available on Windows.
+.SH ERRORS
+The following error codes may be returned by mvis commands:
+.TP
+.B PROCESS_NOT_FOUND
+The specified process name was not found on the system. Check the process
+name and try again.
+.TP
+.B PERMISSION_DENIED
+Insufficient privileges to inspect the target process. Run mvis with
+elevated privileges (root on Linux, admin on Windows).
+.TP
+.B PLATFORM_UNSUPPORTED
+The requested operation is not supported on the current operating system.
+Some commands are platform-specific (e.g.,
+.B wintrace
+is Windows-only).
+.TP
+.B MISSING_ARG
+A required command-line argument was not provided. Run
+.B mvis help <command>
+to see the correct usage for that command.
+.TP
+.B INVALID_ARG
+An argument value is invalid or out of range. Check the argument value
+and try again.
+.TP
+.B UNKNOWN_COMMAND
+The specified command does not exist. Run
+.B mvis help
+to see all available commands.
+.TP
+.B OTHER
+An unexpected error occurred. Check the error message printed to standard
+error for details.
 .SH BUGS
 Report bugs at
 .UR https://github.com/m-visualizer/m-vis/issues

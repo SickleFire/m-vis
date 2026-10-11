@@ -1,4 +1,26 @@
 # Changelog
+## [0.6.0] - 2026-09-29
+### Added
+- **Reference Pointer Tree** (Linux and Windows)
+- **Hex Dump View**
+- **macOS `read_process_memory` support** (closes #112)
+
+### Fixed
+- **Pointer references now available for Linux**
+- Fixed hex dump cutoff and display issues
+- Fixed `walk_heap_granular` to work correctly with musl libc
+- Resolve trait and import errors in Linux memory modules
+
+## [0.6.0-rc2] - 2026-09-02
+### Added
+- **Reference Pointer Tree** (Linux and Windows)
+- **Hex Dump View**
+
+### Fixed
+- **Pointer references now available for Linux**
+- Added `read_process_memory` implementation for macOS (#112)
+- Fixed musl libc compatibility for `walk_heap_granular` on Linux
+
 ## [0.6.0-rc1] - 2026-08-30
 ### Added
 - **Reference Pointer Tree** (Linux and Windows)
