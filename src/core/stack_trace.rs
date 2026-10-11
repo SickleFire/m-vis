@@ -30,7 +30,7 @@ fn symbol_warning(missing_debug_info: bool) -> Option<String> {
     missing_debug_info.then(|| MISSING_DEBUG_INFO_WARNING.to_string())
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, Serialize)]
 pub struct StackFrame {
     pub instruction_pointer: usize,
     pub base_pointer: usize,
@@ -39,7 +39,7 @@ pub struct StackFrame {
     pub symbol: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, Serialize)]
 pub struct StackTrace {
     pub pid: u32,
     pub frames: Vec<StackFrame>,

@@ -90,11 +90,18 @@ pub fn scan(args: Vec<&str>) -> Result<ScanResult, String> {
     let granular = args.get(3).map(|a| a == &"-g").unwrap_or(false);
     let json = args.get(3).map(|a| a == &"-json").unwrap_or(false);
     let output = args.get(4).cloned();
-    let lines = scan_with_modes_tui(&mode.to_string(), pid, json, output);
+    let mut lines = scan_with_modes_tui(&mode.to_string(), pid, json, output);
     let raw = get_heap_blocks(pid, granular);
-    let mem = os::provider();
 
-    let pointer_edges = mem.find_pointer_edges(pid, &raw).unwrap_or_default();
+    let pointer_edges = match crate::core::scan::find_pointer_edges_with_stack(pid, &raw) {
+        Ok(edges) => edges,
+        Err(error) => {
+            lines.push(ratatui::text::Line::raw(format!(
+                "pointer edge scan unavailable: {error}"
+            )));
+            std::collections::HashMap::new()
+        }
+    };
 
     let pointer_blocks: std::collections::HashSet<usize> = pointer_edges.keys().copied().collect();
     let referenced_blocks: std::collections::HashSet<usize> = pointer_edges

@@ -293,9 +293,9 @@ impl MemoryProvider for MacMemory {
 
     fn find_pointer_edges(
         &self,
-        pid: u32,
-        blocks: &[HeapBlock],
+        _pid: u32,
+        _blocks: &[HeapBlock],
     ) -> Result<HashMap<usize, Vec<PointerEdge>>, String> {
-        todo!("implement find_pointer_edges")
+        Err("pointer edge scanning is not supported on macOS".to_string())
     }
 }

@@ -44,6 +44,28 @@ fn heap_view_index(mode: HeapViewMode) -> usize {
     HEAP_VIEW_ORDER.iter().position(|&m| m == mode).unwrap_or(0)
 }
 
+fn pointer_edge_stack_summary(edge: &crate::types::PointerEdge) -> Option<String> {
+    if let Some(trace) = &edge.observed_stack {
+        if trace.frames.is_empty() {
+            Some("no frames captured".into())
+        } else {
+            Some(
+                trace
+                    .frames
+                    .iter()
+                    .take(3)
+                    .map(|frame| frame.symbol.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" <- "),
+            )
+        }
+    } else if edge.stack_trace_error.is_some() {
+        Some("unavailable".into())
+    } else {
+        None
+    }
+}
+
 fn heap_view_label(mode: HeapViewMode) -> &'static str {
     match mode {
         HeapViewMode::Metrics => "Metrics",
@@ -149,6 +171,7 @@ struct PointerTreeRow {
     is_dangling: bool,
     is_cycle: bool,
     is_shared: bool,
+    stack_summary: Option<String>,
 }
 
 fn flatten_pointer_tree(
@@ -169,6 +192,7 @@ fn flatten_pointer_tree(
         sizes: &std::collections::HashMap<usize, usize>,
         collapsed: &std::collections::HashSet<usize>,
         rows: &mut Vec<PointerTreeRow>,
+        incoming_edge: Option<&crate::types::PointerEdge>,
     ) {
         if rows.len() >= MAX_ROWS {
             return;
@@ -198,6 +222,7 @@ fn flatten_pointer_tree(
             is_dangling: false,
             is_cycle,
             is_shared,
+            stack_summary: incoming_edge.and_then(pointer_edge_stack_summary),
         });
 
         if is_cycle || is_shared || collapsed.contains(&addr) || depth >= MAX_POINTER_TREE_DEPTH {
@@ -220,6 +245,7 @@ fn flatten_pointer_tree(
                     is_dangling: true,
                     is_cycle: false,
                     is_shared: false,
+                    stack_summary: pointer_edge_stack_summary(edge),
                 });
             } else {
                 walk(
@@ -231,6 +257,7 @@ fn flatten_pointer_tree(
                     sizes,
                     collapsed,
                     rows,
+                    Some(edge),
                 );
             }
         }
@@ -248,6 +275,7 @@ fn flatten_pointer_tree(
         sizes,
         collapsed,
         rows,
+        None,
     );
 
     if rows.len() >= MAX_ROWS {
@@ -261,6 +289,7 @@ fn flatten_pointer_tree(
             is_dangling: false,
             is_cycle: false,
             is_shared: false,
+            stack_summary: None,
         });
     }
 }
@@ -2553,10 +2582,13 @@ fn render_pointer_tree(
         };
 
         let label = if row.is_dangling {
-            format!(
+            let base = format!(
                 "{indent}{prefix}0x{:x}  [dangling → freed block]",
                 row.address
-            )
+            );
+            row.stack_summary.as_ref().map_or(base.clone(), |summary| {
+                format!("{base}  [observed stack: {summary}]")
+            })
         } else if row.is_cycle {
             format!("{indent}{prefix}0x{:x}  [cycle]", row.address)
         } else if row.is_shared {

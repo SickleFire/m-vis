@@ -87,7 +87,10 @@ graph TD
 - **Leak Delta Chart**: m-vis includes a real time leak delta chart that visualizes memory allocation trends over time directly in the TUI.
 - **CI/CD Integration**: Automated memory audits, growth rate monitoring, and export reports (JSON/CSV/JUnit) via `mvis ci` and GitHub Actions.
 - **Raw Memory Inspection**: Dump and inspect raw hex/ASCII bytes around arbitrary memory addresses in live processes.
+- **Dangling Pointer Attribution**: Heap scans attach a sampled process stack to edges that still point into freed blocks. The TUI shows a short frame summary in the pointer tree; `mvis save <process> <file>` includes the available frames in the JSON snapshot.
 - **Universal OS Support**: 100% native support for Windows, Linux, and macOS.
+
+Pointer-edge stacks are captured when the scan observes the dangling edge. They describe the target process's execution at that moment; they do not recover the historical call site that originally stored the pointer. Unwinding and symbol resolution depend on platform support, permissions, and available debug symbols. When capture fails, the edge remains in the scan output with a `stack_trace_error` field instead.
 
 ---
 

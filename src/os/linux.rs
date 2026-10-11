@@ -452,6 +452,8 @@ pub fn find_pointer_edges(pid: u32, blocks: &[HeapBlock]) -> HashMap<usize, Vec<
                     out.push(PointerEdge {
                         target,
                         target_is_free,
+                        observed_stack: None,
+                        stack_trace_error: None,
                     });
                 }
             }
