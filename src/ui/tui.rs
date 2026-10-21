@@ -189,6 +189,8 @@ struct PointerTreeRow {
     is_collapsed: bool,
     is_leaf: bool,
     is_dangling: bool,
+    is_unresolved: bool,
+    pointer_source_address: Option<usize>,
     is_cycle: bool,
     is_shared: bool,
     stack_summary: Option<String>,
@@ -240,6 +242,8 @@ fn flatten_pointer_tree(
             is_collapsed: collapsed.contains(&addr),
             is_leaf: !has_children,
             is_dangling: false,
+            is_unresolved: false,
+            pointer_source_address: None,
             is_cycle,
             is_shared,
             stack_summary: incoming_edge.and_then(pointer_edge_stack_summary),
@@ -254,18 +258,41 @@ fn flatten_pointer_tree(
             if rows.len() >= MAX_ROWS {
                 break;
             }
+            let pointer_value = if edge.pointer_value == 0 {
+                edge.target
+            } else {
+                edge.pointer_value
+            };
             if edge.target_is_free {
                 rows.push(PointerTreeRow {
-                    address: edge.target,
+                    address: pointer_value,
                     size: sizes.get(&edge.target).copied().unwrap_or(0),
                     depth: depth + 1,
                     has_children: false,
                     is_collapsed: false,
                     is_leaf: true,
                     is_dangling: true,
+                    is_unresolved: false,
+                    pointer_source_address: None,
                     is_cycle: false,
                     is_shared: false,
                     stack_summary: pointer_edge_stack_summary(edge),
+                });
+            } else if edge.target == addr {
+                rows.push(PointerTreeRow {
+                    address: pointer_value,
+                    size: 0,
+                    depth: depth + 1,
+                    has_children: false,
+                    is_collapsed: false,
+                    is_leaf: true,
+                    is_dangling: false,
+                    is_unresolved: true,
+                    pointer_source_address: (edge.source_address != 0)
+                        .then_some(edge.source_address),
+                    is_cycle: false,
+                    is_shared: false,
+                    stack_summary: None,
                 });
             } else {
                 walk(
@@ -307,6 +334,8 @@ fn flatten_pointer_tree(
             is_collapsed: false,
             is_leaf: true,
             is_dangling: false,
+            is_unresolved: false,
+            pointer_source_address: None,
             is_cycle: false,
             is_shared: false,
             stack_summary: None,
@@ -2610,6 +2639,8 @@ fn render_pointer_tree(
             "[~] "
         } else if row.is_dangling {
             "[!] "
+        } else if row.is_unresolved {
+            "[?] "
         } else if row.has_children {
             if row.is_collapsed { "[+] " } else { "[-] " }
         } else if row.depth > 0 {
@@ -2620,6 +2651,8 @@ fn render_pointer_tree(
 
         let color = if row.is_dangling {
             theme.growth_critical
+        } else if row.is_unresolved {
+            theme.growth_warning
         } else if row.is_cycle {
             theme.cyan
         } else if row.is_shared {
@@ -2646,6 +2679,15 @@ fn render_pointer_tree(
             row.stack_summary.as_ref().map_or(base.clone(), |summary| {
                 format!("{base}  [observed stack: {summary}]")
             })
+        } else if row.is_unresolved {
+            let source = row.pointer_source_address.map_or_else(
+                || "unknown slot".to_string(),
+                |addr| format!("slot 0x{addr:x}"),
+            );
+            format!(
+                "{indent}{prefix}0x{:x}  [same reported block as {source}; allocation status unknown]",
+                row.address
+            )
         } else if row.is_cycle {
             format!("{indent}{prefix}0x{:x}  [cycle]", row.address)
         } else if row.is_shared {
@@ -3179,6 +3221,43 @@ mod tests {
             pointer_edges: HashMap::new(),
         });
         app
+    }
+
+    #[test]
+    fn pointer_tree_shows_unresolved_intra_block_pointer_value() {
+        let edges = HashMap::from([(
+            0x1000,
+            vec![
+                crate::types::PointerEdge {
+                    target: 0x1000,
+                    target_is_free: false,
+                    pointer_value: 0x1080,
+                    source_address: 0x1010,
+                    observed_stack: None,
+                    stack_trace_error: None,
+                },
+                crate::types::PointerEdge {
+                    target: 0x2000,
+                    target_is_free: true,
+                    pointer_value: 0x2010,
+                    source_address: 0x1018,
+                    observed_stack: None,
+                    stack_trace_error: None,
+                },
+            ],
+        )]);
+        let sizes = HashMap::from([(0x1000, 0x100), (0x2000, 0x80)]);
+        let mut rows = Vec::new();
+
+        flatten_pointer_tree(0x1000, &edges, &sizes, &HashSet::new(), &mut rows);
+
+        assert_eq!(rows.len(), 3);
+        assert!(rows[1].is_unresolved);
+        assert!(!rows[1].is_dangling);
+        assert_eq!(rows[1].address, 0x1080);
+        assert_eq!(rows[1].pointer_source_address, Some(0x1010));
+        assert!(rows[2].is_dangling);
+        assert_eq!(rows[2].address, 0x2010);
     }
 
     #[test]

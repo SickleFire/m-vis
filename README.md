@@ -92,6 +92,8 @@ graph TD
 
 Pointer-edge stacks are captured when the scan observes the dangling edge. They describe the target process's execution at that moment; they do not recover the historical call site that originally stored the pointer. Unwinding and symbol resolution depend on platform support, permissions, and available debug symbols. When capture fails, the edge remains in the scan output with a `stack_trace_error` field instead.
 
+Some Windows heap APIs report multiple small allocations as one heap range. For pointers whose source and target fall within the same reported range, the Pointer Tree shows the exact pointer and slot as unresolved rather than claiming that the target is freed. Heap scanning examines up to 64 KiB per reported block for pointer values.
+
 ---
 
 ## Core Workflows: How Leak Detection Works

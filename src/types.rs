@@ -87,6 +87,12 @@ pub struct ModuleInfo {
 pub struct PointerEdge {
     pub target: usize,
     pub target_is_free: bool,
+    /// Exact pointer value read from the source block.
+    #[serde(default)]
+    pub pointer_value: usize,
+    /// Address of the pointer slot in the source block.
+    #[serde(default)]
+    pub source_address: usize,
     /// A process stack sampled while the edge was observed, not its allocation provenance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed_stack: Option<crate::core::stack_trace::StackTrace>,
@@ -103,6 +109,8 @@ mod tests {
     fn pointer_edge_deserializes_legacy_data_without_trace_fields() {
         let edge: PointerEdge =
             serde_json::from_str(r#"{"target":8192,"target_is_free":true}"#).unwrap();
+        assert_eq!(edge.pointer_value, 0);
+        assert_eq!(edge.source_address, 0);
         assert!(edge.observed_stack.is_none());
         assert!(edge.stack_trace_error.is_none());
     }
@@ -112,6 +120,8 @@ mod tests {
         let edge = PointerEdge {
             target: 8192,
             target_is_free: true,
+            pointer_value: 8200,
+            source_address: 4096,
             observed_stack: Some(crate::core::stack_trace::StackTrace {
                 pid: 42,
                 frames: vec![crate::core::stack_trace::StackFrame {

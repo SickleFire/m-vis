@@ -758,12 +758,16 @@ mod tests {
                 PointerEdge {
                     target: 0x2000,
                     target_is_free: true,
+                    pointer_value: 0x2008,
+                    source_address: 0x1010,
                     observed_stack: None,
                     stack_trace_error: None,
                 },
                 PointerEdge {
                     target: 0x3000,
                     target_is_free: false,
+                    pointer_value: 0x3010,
+                    source_address: 0x1018,
                     observed_stack: None,
                     stack_trace_error: None,
                 },
@@ -783,6 +787,8 @@ mod tests {
             vec![PointerEdge {
                 target: 0x2000,
                 target_is_free: true,
+                pointer_value: 0x2008,
+                source_address: 0x1010,
                 observed_stack: None,
                 stack_trace_error: None,
             }],
