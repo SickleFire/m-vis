@@ -66,6 +66,10 @@ fn pointer_edge_stack_summary(edge: &crate::types::PointerEdge) -> Option<String
     }
 }
 
+fn wrapped_line_height(line: &Line<'_>, width: usize) -> usize {
+    line.width().div_ceil(width.max(1)).max(1)
+}
+
 fn heap_view_label(mode: HeapViewMode) -> &'static str {
     match mode {
         HeapViewMode::Metrics => "Metrics",
@@ -159,6 +163,22 @@ struct HeapSnapshot {
     pointer_blocks: std::collections::HashSet<usize>,
     pub referenced_blocks: std::collections::HashSet<usize>,
     pub pointer_edges: std::collections::HashMap<usize, Vec<crate::types::PointerEdge>>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum AllocationSort {
+    #[default]
+    LargestFirst,
+    AddressAscending,
+}
+
+fn sorted_allocations(snap: &HeapSnapshot, sort: AllocationSort) -> Vec<&HeapBlock> {
+    let mut blocks: Vec<_> = snap.blocks.iter().filter(|block| !block.is_free).collect();
+    match sort {
+        AllocationSort::LargestFirst => blocks.sort_by(|a, b| b.size.cmp(&a.size)),
+        AllocationSort::AddressAscending => blocks.sort_by_key(|block| block.address),
+    }
+    blocks
 }
 
 struct PointerTreeRow {
@@ -404,6 +424,7 @@ struct App {
     alloc_table_page: usize,      // current page
     alloc_table_page_size: usize, // rows per page, derived from panel height
     alloc_table_selected: usize,  // highlighted row
+    allocation_sort: AllocationSort,
     heap_view_mode: HeapViewMode,
     tx: std::sync::mpsc::Sender<AppEvent>,
     rx: std::sync::mpsc::Receiver<AppEvent>,
@@ -487,6 +508,7 @@ impl App {
             alloc_table_page: 0,
             alloc_table_page_size: 0,
             alloc_table_selected: 0,
+            allocation_sort: AllocationSort::default(),
             heap_view_mode: HeapViewMode::Metrics,
             tx,
             rx,
@@ -728,10 +750,14 @@ impl App {
         self.character_index = 0;
     }
     fn next_page(&mut self) {
+        if self.alloc_table_page_size == 0 {
+            return;
+        }
         if let Some(snap) = self.heap_history.last() {
-            let used_blocks: Vec<_> = snap.blocks.iter().filter(|b| !b.is_free).collect();
-            let max_page = used_blocks.len() / self.alloc_table_page_size;
-            if self.alloc_table_page < max_page {
+            let page_count = sorted_allocations(snap, self.allocation_sort)
+                .len()
+                .div_ceil(self.alloc_table_page_size);
+            if self.alloc_table_page + 1 < page_count {
                 self.alloc_table_page += 1;
                 self.alloc_table_selected = 0;
             }
@@ -753,6 +779,15 @@ impl App {
 
     fn select_prev_row(&mut self) {
         self.alloc_table_selected = self.alloc_table_selected.saturating_sub(1);
+    }
+
+    fn toggle_allocation_sort(&mut self) {
+        self.allocation_sort = match self.allocation_sort {
+            AllocationSort::LargestFirst => AllocationSort::AddressAscending,
+            AllocationSort::AddressAscending => AllocationSort::LargestFirst,
+        };
+        self.alloc_table_page = 0;
+        self.alloc_table_selected = 0;
     }
 
     fn refresh_proc_list(&mut self) {
@@ -877,8 +912,7 @@ impl App {
         };
         let (_, lo, hi) = SIZE_BUCKETS[self.histogram.state.selected];
 
-        let mut used_blocks: Vec<_> = snap.blocks.iter().filter(|b| !b.is_free).collect();
-        used_blocks.sort_by(|a, b| b.size.cmp(&a.size)); // same order as render_alloc_table
+        let used_blocks = sorted_allocations(snap, self.allocation_sort);
 
         if let Some(idx) = used_blocks.iter().position(|b| b.size > lo && b.size <= hi)
             && self.alloc_table_page_size > 0
@@ -1034,8 +1068,7 @@ impl App {
                 self.push_message("no heap snapshot available".into());
                 return;
             };
-            let mut used_blocks: Vec<_> = snap.blocks.iter().filter(|b| !b.is_free).collect();
-            used_blocks.sort_by(|a, b| b.size.cmp(&a.size));
+            let used_blocks = sorted_allocations(snap, self.allocation_sort);
             let idx =
                 self.alloc_table_page * self.alloc_table_page_size + self.alloc_table_selected;
             let Some(block) = used_blocks.get(idx) else {
@@ -1068,8 +1101,7 @@ impl App {
             let Some(snap) = self.heap_history.last() else {
                 return;
             };
-            let mut used_blocks: Vec<_> = snap.blocks.iter().filter(|b| !b.is_free).collect();
-            used_blocks.sort_by(|a, b| b.size.cmp(&a.size)); // same order as render_alloc_table
+            let used_blocks = sorted_allocations(snap, self.allocation_sort);
             let idx =
                 self.alloc_table_page * self.alloc_table_page_size + self.alloc_table_selected;
             used_blocks.get(idx).map(|block| {
@@ -1728,6 +1760,12 @@ impl App {
                         }
                         KeyCode::Char(']') => self.next_page(),
                         KeyCode::Char('[') => self.prev_page(),
+                        KeyCode::Char('s')
+                            if self.focus == Focus::AllocTable
+                                && self.heap_view_mode == HeapViewMode::Allocations =>
+                        {
+                            self.toggle_allocation_sort()
+                        }
                         KeyCode::Char('j') => match self.focus {
                             Focus::Tree => self
                                 .alloc_tree
@@ -2220,6 +2258,7 @@ impl App {
                             self.alloc_table_page,
                             self.alloc_table_page_size,
                             self.alloc_table_selected,
+                            self.allocation_sort,
                             &self.theme,
                         ),
                         HeapViewMode::Histogram => {
@@ -2227,25 +2266,40 @@ impl App {
                         }
                         HeapViewMode::Chart => unreachable!(),
                         HeapViewMode::PointerTree => {
-                            let visible_rows = panel_height.saturating_sub(6);
-                            if visible_rows > 0 {
-                                if self.pointer_tree.state.selected < self.pointer_tree.state.scroll
-                                {
-                                    self.pointer_tree.state.scroll =
-                                        self.pointer_tree.state.selected;
-                                } else if self.pointer_tree.state.selected
-                                    >= self.pointer_tree.state.scroll + visible_rows
-                                {
-                                    self.pointer_tree.state.scroll =
-                                        self.pointer_tree.state.selected + 1 - visible_rows;
-                                }
-                            }
-                            render_pointer_tree(
+                            let wrap_width = heap_area.width.saturating_sub(2).max(1) as usize;
+                            let visible_height = panel_height.saturating_sub(2);
+                            let lines = render_pointer_tree(
                                 self.pointer_tree.root,
                                 &self.pointer_tree.rows,
                                 self.pointer_tree.state.selected,
                                 &self.theme,
-                            )
+                            );
+                            if visible_height > 0
+                                && self.pointer_tree.root.is_some()
+                                && !self.pointer_tree.rows.is_empty()
+                            {
+                                let selected_line_index = 2 + self
+                                    .pointer_tree
+                                    .state
+                                    .selected
+                                    .min(self.pointer_tree.rows.len() - 1);
+                                let selected_top = lines[..selected_line_index]
+                                    .iter()
+                                    .map(|line| wrapped_line_height(line, wrap_width))
+                                    .sum::<usize>();
+                                let selected_height =
+                                    wrapped_line_height(&lines[selected_line_index], wrap_width);
+                                let scroll = &mut self.pointer_tree.state.scroll;
+                                if selected_top < *scroll {
+                                    *scroll = selected_top;
+                                } else if selected_top + selected_height
+                                    > *scroll + visible_height as usize
+                                {
+                                    *scroll =
+                                        selected_top + selected_height - visible_height as usize;
+                                }
+                            }
+                            lines
                         }
                         HeapViewMode::HexDump => render_hex_dump(
                             self.hex_dump.address,
@@ -2262,28 +2316,31 @@ impl App {
                 _ => 0,
             };
 
+            let heap_paragraph = Paragraph::new(heap_lines)
+                .block(
+                    Block::bordered()
+                        .border_style(Style::default().fg(self.theme.border))
+                        .title(match self.heap_view_mode {
+                            HeapViewMode::Metrics => "Heap View [Tab for table]",
+                            HeapViewMode::Allocations => "Heap View [Tab for chart · 'd' inspect]",
+                            HeapViewMode::Histogram => {
+                                "Allocation Histogram [Tab: metrics · Enter: jump]"
+                            }
+                            HeapViewMode::Chart => unreachable!(),
+                            HeapViewMode::PointerTree => {
+                                "Pointer Tree [j/k nav · Enter expand/collapse · Esc back]"
+                            }
+                            HeapViewMode::HexDump => "Memory Inspector [j/k scroll · Esc back]",
+                        })
+                        .fg(self.theme.healthy),
+                )
+                .scroll((heap_scroll, 0));
             frame.render_widget(
-                Paragraph::new(heap_lines)
-                    .block(
-                        Block::bordered()
-                            .border_style(Style::default().fg(self.theme.border))
-                            .title(match self.heap_view_mode {
-                                HeapViewMode::Metrics => "Heap View [Tab for table]",
-                                HeapViewMode::Allocations => {
-                                    "Heap View [Tab for chart · 'd' inspect]"
-                                }
-                                HeapViewMode::Histogram => {
-                                    "Allocation Histogram [Tab: metrics · Enter: jump]"
-                                }
-                                HeapViewMode::Chart => unreachable!(),
-                                HeapViewMode::PointerTree => {
-                                    "Pointer Tree [j/k nav · Enter expand/collapse · Esc back]"
-                                }
-                                HeapViewMode::HexDump => "Memory Inspector [j/k scroll · Esc back]",
-                            })
-                            .fg(self.theme.healthy),
-                    )
-                    .scroll((heap_scroll, 0)),
+                if self.heap_view_mode == HeapViewMode::PointerTree {
+                    heap_paragraph.wrap(Wrap { trim: false })
+                } else {
+                    heap_paragraph
+                },
                 heap_area,
             );
 
@@ -2783,25 +2840,34 @@ fn render_alloc_table(
     page: usize,
     page_size: usize,
     selected: usize,
+    sort: AllocationSort,
     theme: &crate::ui::theme::Theme,
 ) -> Vec<Line<'static>> {
     let mut lines = vec![];
 
-    let used_blocks: Vec<_> = {
-        let mut b: Vec<_> = snap.blocks.iter().filter(|b| !b.is_free).collect();
-        b.sort_by(|a, b| b.size.cmp(&a.size)); // largest first
-        b
+    let used_blocks = sorted_allocations(snap, sort);
+
+    let total_pages = if page_size == 0 {
+        0
+    } else {
+        used_blocks.len().div_ceil(page_size)
+    };
+    let start = page * page_size;
+    let page_blocks: Vec<_> = if page_size == 0 {
+        Vec::new()
+    } else {
+        used_blocks.iter().skip(start).take(page_size).collect()
     };
 
-    let total_pages = used_blocks.len().div_ceil(page_size);
-    let start = page * page_size;
-    let page_blocks: Vec<_> = used_blocks.iter().skip(start).take(page_size).collect();
-
     lines.push(Line::raw(format!(
-        "── Allocations  Page {}/{}  ({} total) ──",
+        "── Allocations  Page {}/{}  ({} total)  [{}] ──",
         page + 1,
         total_pages,
-        used_blocks.len()
+        used_blocks.len(),
+        match sort {
+            AllocationSort::LargestFirst => "largest first",
+            AllocationSort::AddressAscending => "address order",
+        }
     )));
     lines.push(Line::raw(format!(
         "{:<5} {:<18} {:<12} {:<8} {:<6} {}",
@@ -2868,7 +2934,7 @@ fn render_alloc_table(
 
     lines.push(Line::raw(""));
     lines.push(Line::raw(
-        "[ prev page   ] next page   J/K select row   Tab → Metrics",
+        "[ prev page   ] next page   J/K select row   s sort order   Tab → Metrics",
     ));
     lines
 }
@@ -3247,6 +3313,29 @@ mod tests {
         assert!(matches!(app.heap_view_mode, HeapViewMode::Allocations));
         app.heap_view_mode = HeapViewMode::Metrics;
         assert!(matches!(app.heap_view_mode, HeapViewMode::Metrics));
+    }
+
+    #[test]
+    fn allocation_sort_toggles_between_size_and_address_order() {
+        let mut app = make_app_with_heap();
+        app.heap_history[0].blocks[0].size = 256;
+        app.heap_history[0].blocks[1].size = 512;
+
+        let largest_first = sorted_allocations(&app.heap_history[0], app.allocation_sort);
+        assert_eq!(largest_first[0].address, 0x2000);
+
+        app.alloc_table_page = 2;
+        app.alloc_table_selected = 1;
+        app.toggle_allocation_sort();
+        let address_order = sorted_allocations(&app.heap_history[0], app.allocation_sort);
+
+        assert_eq!(address_order[0].address, 0x1000);
+        assert_eq!(address_order[1].address, 0x2000);
+        assert_eq!(app.alloc_table_page, 0);
+        assert_eq!(app.alloc_table_selected, 0);
+
+        app.toggle_allocation_sort();
+        assert_eq!(app.allocation_sort, AllocationSort::LargestFirst);
     }
 
     // ── pagination ───────────────────────────────────────────────────────────
