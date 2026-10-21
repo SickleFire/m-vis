@@ -1,3 +1,5 @@
 /target
 .DS_Store
 tests/test_programs/*.exe
+.rune
+rune_notes.html
