@@ -3,7 +3,7 @@ use crate::types::{
     HeapBlock, ModuleInfo, ModuleStatus, PointerEdge, Region, RegionKind, RegionProtect,
     RegionState,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 
@@ -423,8 +423,10 @@ pub fn find_pointer_edges(pid: u32, blocks: &[HeapBlock]) -> HashMap<usize, Vec<
         (value >= start && value < end).then_some((start, is_free))
     };
 
+    let mut seen_edges = HashSet::new();
     for block in blocks.iter().filter(|b| !b.is_free) {
-        let read_len = block.size.min(4096);
+        const MAX_BLOCK_READ: usize = 64 * 1024;
+        let read_len = block.size.min(MAX_BLOCK_READ);
         let mut buf = vec![0u8; read_len];
 
         // read_at (pread) on /proc/<pid>/mem seeks-and-reads at the given
@@ -444,14 +446,17 @@ pub fn find_pointer_edges(pid: u32, blocks: &[HeapBlock]) -> HashMap<usize, Vec<
         while offset + 8 <= bytes_read {
             let value = usize::from_le_bytes(buf[offset..offset + 8].try_into().unwrap());
 
-            if let Some((target, target_is_free)) = find_containing(value)
-                && target != block.address
-            {
-                let out = edges.entry(block.address).or_default();
-                if !out.iter().any(|e: &PointerEdge| e.target == target) {
+            if let Some((target, target_is_free)) = find_containing(value) {
+                let source_address = block.address.saturating_add(offset);
+                if seen_edges.insert((block.address, target, value, source_address)) {
+                    let out = edges.entry(block.address).or_default();
                     out.push(PointerEdge {
                         target,
                         target_is_free,
+                        pointer_value: value,
+                        source_address,
+                        observed_stack: None,
+                        stack_trace_error: None,
                     });
                 }
             }

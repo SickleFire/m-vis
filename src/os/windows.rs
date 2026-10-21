@@ -6,9 +6,9 @@
 //! ## APIs Used
 //! - `VirtualQueryEx` — walks the virtual address space of a target process
 //! - `GetModuleFileNameExW` — resolves image region base addresses to DLL/EXE paths
-//! - `ReadProcessMemory` — reads heap segment data directly for fast block parsing
-//! - `Toolhelp32` — enumerates heap base addresses
-use std::collections::HashMap;
+//! - `ReadProcessMemory` — reads target memory for pointer scanning and dumps
+//! - `Toolhelp32` — enumerates heap entries
+use std::collections::{HashMap, HashSet};
 use windows::Win32::Foundation::HMODULE;
 use windows::Win32::System::Memory::{
     MEM_COMMIT, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE, MEM_RESERVE, MEMORY_BASIC_INFORMATION,
@@ -160,231 +160,38 @@ pub fn walk_regions(pid: u32) -> Result<Vec<Region>, String> {
     }
     Ok(regions)
 }
-/// Walks all heap blocks in a process using `ReadProcessMemory` for performance.
-///
-/// This implementation uses two phases:
-/// 1. **Toolhelp32 heap list** — enumerate heap base addresses only.
-/// 2. **`ReadProcessMemory`** — read entire heap segments at once.
-///
-/// # Arguments
-/// * `pid` — target process ID
-///
-/// # Returns
-/// A `Vec<HeapBlock>` with address, size, free status, and page protection
-/// for each parsed heap block.
+/// Enumerates heap entries with Toolhelp32. The reported granularity depends on
+/// the Windows heap implementation and may combine multiple small allocations.
 pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
-    use std::time::{Duration, Instant};
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, HEAPLIST32, Heap32ListFirst, Heap32ListNext, TH32CS_SNAPHEAPLIST,
-    };
-    use windows::Win32::System::Memory::{
-        MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_NOACCESS, VirtualQueryEx,
-    };
-    use windows::Win32::System::Threading::{
-        OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
-    };
-
-    // --- tunable safety limits ---
-    const MAX_BLOCKS_PER_HEAP: usize = 100_000;
-    const MAX_TOTAL_BLOCKS: usize = 1_000_000;
-    const MAX_WALK_DURATION: Duration = Duration::from_secs(10);
-    const MAX_REGION_SPAN: usize = 512 * 1024 * 1024;
-    const MIN_SIZE_UNITS: usize = 1; // smallest plausible header unit
-    const MAX_SIZE_UNITS: usize = u16::MAX as usize; // header field is u16, so this is already the ceiling
-
-    let start = Instant::now();
-    let mut blocks = Vec::with_capacity(50_000);
-
-    unsafe {
-        // open process for reading
-        let proc_handle = match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
-        {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("walk_heap: OpenProcess failed for pid {pid}: {e:?}");
-                return blocks;
-            }
-        };
-
-        // phase 1 — collect heap base addresses via Toolhelp32
-        // this is fast because we only enumerate heaps, not blocks
-        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPHEAPLIST, pid) {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("walk_heap: CreateToolhelp32Snapshot failed for pid {pid}: {e:?}");
-                CloseHandle(proc_handle).ok();
-                return blocks;
-            }
-        };
-
-        let mut heap_bases: Vec<usize> = Vec::new();
-        let mut hl = HEAPLIST32 {
-            dwSize: std::mem::size_of::<HEAPLIST32>(),
-            ..Default::default()
-        };
-
-        if Heap32ListFirst(snapshot, &mut hl).is_ok() {
-            loop {
-                heap_bases.push(hl.th32HeapID);
-                if Heap32ListNext(snapshot, &mut hl).is_err() {
-                    break;
-                }
-            }
-        }
-
-        // phase 2 — for each heap base, walk committed regions and parse headers
-        'heaps: for heap_base in heap_bases {
-            let mut addr = heap_base;
-            let mut blocks_this_heap = 0usize;
-
-            loop {
-                // query the region at this address
-                // global deadline check — bail out of everything if we've overrun
-                if start.elapsed() > MAX_WALK_DURATION {
-                    eprintln!("walk_heap: exceeded time budget for pid {pid}, aborting walk");
-                    break 'heaps;
-                }
-                if blocks.len() >= MAX_TOTAL_BLOCKS {
-                    eprintln!("walk_heap: exceeded total block cap for pid {pid}, aborting walk");
-                    break 'heaps;
-                }
-                if blocks_this_heap >= MAX_BLOCKS_PER_HEAP {
-                    // likely corrupted/hostile heap metadata — stop this heap, move to next
-                    eprintln!(
-                        "walk_heap: heap at {heap_base:#x} exceeded block cap, skipping rest"
-                    );
-                    break;
-                }
-
-                let mut mbi = MEMORY_BASIC_INFORMATION::default();
-                let written = VirtualQueryEx(
-                    proc_handle,
-                    Some(addr as *const _),
-                    &mut mbi,
-                    std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
-                );
-                if written == 0 {
-                    break;
-                }
-
-                // only read committed, accessible memory
-                if mbi.State == MEM_COMMIT
-                    && mbi.Protect.0 != 0
-                    && !mbi.Protect.contains(PAGE_NOACCESS)
-                    && mbi.RegionSize > 0
-                {
-                    let mut buf = vec![0u8; mbi.RegionSize];
-                    let mut bytes_read = 0usize;
-                    let ok = ReadProcessMemory(
-                        proc_handle,
-                        mbi.BaseAddress,
-                        buf.as_mut_ptr() as *mut _,
-                        mbi.RegionSize,
-                        Some(&mut bytes_read),
-                    );
-
-                    if ok.is_ok() && bytes_read >= 8 {
-                        let mut offset = 0usize;
-                        while offset + 8 <= bytes_read {
-                            if blocks_this_heap >= MAX_BLOCKS_PER_HEAP
-                                || blocks.len() >= MAX_TOTAL_BLOCKS
-                            {
-                                break;
-                            }
-
-                            let size_units =
-                                u16::from_le_bytes([buf[offset], buf[offset + 1]]) as usize;
-
-                            // reject implausible headers instead of trusting them blindly
-                            if size_units < MIN_SIZE_UNITS || size_units > MAX_SIZE_UNITS {
-                                break;
-                            }
-
-                            let block_size = match size_units.checked_mul(8) {
-                                Some(sz) if sz > 0 => sz,
-                                _ => break,
-                            };
-
-                            // checked add guards offset overflow on 32-bit targets too
-                            let next_offset = match offset.checked_add(block_size) {
-                                Some(v) => v,
-                                None => break,
-                            };
-                            if next_offset > bytes_read {
-                                break;
-                            }
-
-                            let flags = buf[offset + 5];
-                            let is_busy = (flags & 0x01) != 0;
-
-                            // inherit page protection from the containing region
-                            let protect: RegionProtect;
-                            if mbi.Protect == PAGE_READONLY {
-                                protect = RegionProtect::Readonly;
-                            } else if mbi.Protect == PAGE_READWRITE {
-                                protect = RegionProtect::ReadWrite;
-                            } else if mbi.Protect == PAGE_EXECUTE
-                                || mbi.Protect == PAGE_EXECUTE_READ
-                            {
-                                protect = RegionProtect::Execute;
-                            } else if mbi.Protect == PAGE_GUARD {
-                                protect = RegionProtect::Guard;
-                            } else {
-                                protect = RegionProtect::Other;
-                            }
-
-                            blocks.push(HeapBlock {
-                                address: mbi.BaseAddress as usize + offset,
-                                size: block_size,
-                                is_free: !is_busy,
-                                vm_protect: protect,
-                            });
-
-                            blocks_this_heap += 1;
-                            offset = next_offset;
-                        }
-                    }
-                }
-
-                // advance to next region
-                let next = addr.saturating_add(mbi.RegionSize);
-                if next <= addr {
-                    break;
-                }
-                addr = next;
-
-                // stop when we've moved far from the heap base
-                // heap segments are typically contiguous
-                if addr > heap_base.saturating_add(MAX_REGION_SPAN) {
-                    break;
-                }
-            }
-        }
-
-        CloseHandle(proc_handle).ok();
-    }
-    blocks
+    walk_heap_granular(pid)
 }
 
-/// Enumerates every individual heap block for the process using `Toolhelp32` `HEAPENTRY32` records.
+/// Enumerates heap entries for the process using Toolhelp32 `HEAPENTRY32` records.
 ///
-/// Unlike `walk_heap`, which returns one block per heap list entry, this function walks inside
-/// each heap to produce per-allocation granularity.
+/// This is the standard Windows heap walk. Some heap implementations still report multiple
+/// small allocations as one range.
 pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
+    use std::time::{Duration, Instant};
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, HEAPENTRY32, HEAPLIST32, Heap32First, Heap32ListFirst,
         Heap32ListNext, Heap32Next, TH32CS_SNAPHEAPLIST,
     };
 
+    const MAX_BLOCKS_PER_HEAP: usize = 100_000;
+    const MAX_TOTAL_BLOCKS: usize = 1_000_000;
+    const MAX_WALK_DURATION: Duration = Duration::from_secs(10);
+
+    let start = Instant::now();
     let mut blocks = Vec::new();
 
     unsafe {
         let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPHEAPLIST, pid) {
             Ok(h) => h,
-            Err(_) => return blocks,
+            Err(error) => {
+                eprintln!("walk_heap_granular: snapshot failed for pid {pid}: {error:?}");
+                return blocks;
+            }
         };
 
         let mut hl = HEAPLIST32 {
@@ -397,7 +204,8 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
             return blocks;
         }
 
-        loop {
+        'heaps: loop {
+            let mut blocks_this_heap = 0;
             let mut he = HEAPENTRY32 {
                 dwSize: std::mem::size_of::<HEAPENTRY32>(),
                 ..Default::default()
@@ -405,6 +213,26 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
 
             if Heap32First(&mut he, pid, hl.th32HeapID).is_ok() {
                 loop {
+                    if start.elapsed() > MAX_WALK_DURATION {
+                        eprintln!(
+                            "walk_heap_granular: exceeded time budget for pid {pid}, aborting walk"
+                        );
+                        break 'heaps;
+                    }
+                    if blocks.len() >= MAX_TOTAL_BLOCKS {
+                        eprintln!(
+                            "walk_heap_granular: exceeded total block cap for pid {pid}, aborting walk"
+                        );
+                        break 'heaps;
+                    }
+                    if blocks_this_heap >= MAX_BLOCKS_PER_HEAP {
+                        eprintln!(
+                            "walk_heap_granular: heap {:#x} exceeded block cap, skipping rest",
+                            hl.th32HeapID
+                        );
+                        break;
+                    }
+
                     let is_free = (he.dwFlags.0 & 0x2) != 0; // LF32_FREE = 0x2
 
                     blocks.push(HeapBlock {
@@ -413,6 +241,7 @@ pub fn walk_heap_granular(pid: u32) -> Vec<HeapBlock> {
                         is_free,
                         vm_protect: RegionProtect::ReadWrite,
                     });
+                    blocks_this_heap += 1;
 
                     if Heap32Next(&mut he).is_err() {
                         break;
@@ -501,8 +330,10 @@ pub fn find_pointer_edges(pid: u32, blocks: &[HeapBlock]) -> HashMap<usize, Vec<
             (value >= start && value < end).then_some((start, is_free))
         };
 
+        let mut seen_edges = HashSet::new();
         for block in blocks.iter().filter(|b| !b.is_free) {
-            let mut buf = vec![0u8; block.size.min(4096)];
+            const MAX_BLOCK_READ: usize = 64 * 1024;
+            let mut buf = vec![0u8; block.size.min(MAX_BLOCK_READ)];
             let mut bytes_read = 0usize;
 
             let ok = ReadProcessMemory(
@@ -517,30 +348,48 @@ pub fn find_pointer_edges(pid: u32, blocks: &[HeapBlock]) -> HashMap<usize, Vec<
                 continue;
             }
 
-            let mut offset = 0;
-            while offset + 8 <= bytes_read {
-                let value = usize::from_le_bytes(buf[offset..offset + 8].try_into().unwrap());
-
-                if let Some((target, target_is_free)) = find_containing(value)
-                    && target != block.address
-                {
-                    let out = edges.entry(block.address).or_default();
-                    if !out.iter().any(|e: &PointerEdge| e.target == target) {
-                        out.push(PointerEdge {
-                            target,
-                            target_is_free,
-                        });
-                    }
-                }
-
-                offset += 8;
-            }
+            append_pointer_edges(
+                block,
+                &buf[..bytes_read],
+                &find_containing,
+                &mut seen_edges,
+                &mut edges,
+            );
         }
 
         CloseHandle(proc_handle).ok();
     }
 
     edges
+}
+
+fn append_pointer_edges(
+    block: &HeapBlock,
+    bytes: &[u8],
+    find_containing: &impl Fn(usize) -> Option<(usize, bool)>,
+    seen_edges: &mut HashSet<(usize, usize, usize, usize)>,
+    edges: &mut HashMap<usize, Vec<PointerEdge>>,
+) {
+    let mut offset = 0;
+    while offset + 8 <= bytes.len() {
+        let value = usize::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+
+        if let Some((target, target_is_free)) = find_containing(value) {
+            let source_address = block.address.saturating_add(offset);
+            if seen_edges.insert((block.address, target, value, source_address)) {
+                edges.entry(block.address).or_default().push(PointerEdge {
+                    target,
+                    target_is_free,
+                    pointer_value: value,
+                    source_address,
+                    observed_stack: None,
+                    stack_trace_error: None,
+                });
+            }
+        }
+
+        offset += 8;
+    }
 }
 
 /// Coarse tagged/referenced sets for the Allocations table, derived from the
@@ -826,6 +675,29 @@ fn check_integrity(disk: &[u8], mem: &[u8]) -> ModuleStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_scan_keeps_intra_block_targets_after_first_page() {
+        let mut bytes = vec![0; 0x3000];
+        let base = bytes.as_ptr() as usize;
+        let source_offset = 0x1800;
+        let pointer_value = base + 0x1900;
+        bytes[source_offset..source_offset + 8].copy_from_slice(&pointer_value.to_le_bytes());
+        let block = HeapBlock {
+            address: base,
+            size: bytes.len(),
+            is_free: false,
+            vm_protect: RegionProtect::ReadWrite,
+        };
+        let edges = find_pointer_edges(std::process::id(), std::slice::from_ref(&block));
+        let edge = edges[&base]
+            .iter()
+            .find(|edge| edge.pointer_value == pointer_value)
+            .unwrap();
+        assert_eq!(edge.source_address, block.address + source_offset);
+        assert_eq!(edge.target, block.address);
+        assert!(!edge.target_is_free);
+    }
 
     // Helper to make a vec of given length filled with a value
     fn make_page(value: u8, len: usize) -> Vec<u8> {

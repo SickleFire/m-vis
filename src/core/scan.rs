@@ -5,7 +5,7 @@ use crate::types::RegionEntry;
 use crate::types::RegionKind::*;
 use crate::types::RegionProtect::*;
 use crate::types::RegionState::*;
-use crate::types::{HeapBlock, Region};
+use crate::types::{HeapBlock, PointerEdge, Region};
 use crate::ui::render;
 use crate::utils::formatting::format_bytes;
 use rayon::prelude::*;
@@ -144,6 +144,44 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
                     "  \x1b[33m{} large allocations (>=1MB) detected\x1b[0m",
                     huge
                 );
+            }
+
+            match find_pointer_edges_with_stack(pid, &blocks) {
+                Ok(edges) => {
+                    let mut dangling: Vec<_> = edges
+                        .iter()
+                        .flat_map(|(source, edges)| {
+                            edges
+                                .iter()
+                                .filter(|edge| edge.target_is_free)
+                                .map(|edge| (*source, edge))
+                        })
+                        .collect();
+                    dangling.sort_by_key(|(source, edge)| (*source, edge.target));
+
+                    if !dangling.is_empty() {
+                        println!("\ndangling pointer edges:");
+                        for (source, edge) in dangling {
+                            println!("  0x{source:x} -> 0x{:x}", edge.target);
+                            if let Some(trace) = &edge.observed_stack {
+                                if let Some(warning) = &trace.symbol_warning {
+                                    println!("    warning: {warning}");
+                                }
+                                if trace.frames.is_empty() {
+                                    println!("    observed stack: no frames captured");
+                                } else {
+                                    println!("    observed stack:");
+                                    for (index, frame) in trace.frames.iter().enumerate() {
+                                        println!("      #{index:<2} {}", frame.symbol);
+                                    }
+                                }
+                            } else if let Some(error) = &edge.stack_trace_error {
+                                println!("    observed stack unavailable: {error}");
+                            }
+                        }
+                    }
+                }
+                Err(error) => eprintln!("pointer edge scan failed: {error}"),
             }
         }
         "-a" => {
@@ -373,6 +411,46 @@ pub fn scan_with_modes_tui(
 pub fn heap_mode(pid: u32) -> Result<Vec<HeapBlock>, String> {
     let mem = os::provider();
     mem.walk_heap(pid)
+}
+
+/// Finds pointer edges and samples the target's current stack for dangling edges.
+///
+/// This is an observation-time snapshot only: it cannot identify the historical
+/// instruction that created a stored pointer. Failed unwinds are kept on the
+/// edge as an error, so scanning and JSON export still work without symbols or
+/// platform support.
+pub fn find_pointer_edges_with_stack(
+    pid: u32,
+    blocks: &[HeapBlock],
+) -> Result<std::collections::HashMap<usize, Vec<PointerEdge>>, String> {
+    let mem = os::provider();
+    let mut edges = mem.find_pointer_edges(pid, blocks)?;
+    if !edges.values().flatten().any(|edge| edge.target_is_free) {
+        return Ok(edges);
+    }
+
+    // Empty regions still allow the unwinder to return instruction addresses
+    // when region lookup is unavailable.
+    let regions = mem.walk_regions(pid).unwrap_or_default();
+    let capture = crate::core::stack_trace::StackTrace::capture(pid, &regions);
+    attach_observed_stack(&mut edges, capture);
+    Ok(edges)
+}
+
+fn attach_observed_stack(
+    edges: &mut std::collections::HashMap<usize, Vec<PointerEdge>>,
+    capture: Result<crate::core::stack_trace::StackTrace, String>,
+) {
+    for edge in edges
+        .values_mut()
+        .flatten()
+        .filter(|edge| edge.target_is_free)
+    {
+        match &capture {
+            Ok(trace) => edge.observed_stack = Some(trace.clone()),
+            Err(error) => edge.stack_trace_error = Some(error.clone()),
+        }
+    }
 }
 
 fn classify(regions: &[Region]) -> Vec<&str> {
@@ -644,6 +722,7 @@ pub fn stack_trace(pid: u32, regions: &[Region]) {
 mod tests {
     use super::*;
     use crate::types::{HeapBlock, Region, RegionKind, RegionProtect, RegionState};
+    use std::collections::HashMap;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -659,6 +738,69 @@ mod tests {
             is_free,
             vm_protect,
         }
+    }
+
+    #[test]
+    fn observed_stack_is_attached_only_to_dangling_edges() {
+        let trace = crate::core::stack_trace::StackTrace {
+            pid: 42,
+            frames: vec![crate::core::stack_trace::StackFrame {
+                instruction_pointer: 0x1234,
+                base_pointer: 0,
+                return_address: 0,
+                symbol: "sampled_frame".into(),
+            }],
+            symbol_warning: None,
+        };
+        let mut edges = HashMap::from([(
+            0x1000,
+            vec![
+                PointerEdge {
+                    target: 0x2000,
+                    target_is_free: true,
+                    pointer_value: 0x2008,
+                    source_address: 0x1010,
+                    observed_stack: None,
+                    stack_trace_error: None,
+                },
+                PointerEdge {
+                    target: 0x3000,
+                    target_is_free: false,
+                    pointer_value: 0x3010,
+                    source_address: 0x1018,
+                    observed_stack: None,
+                    stack_trace_error: None,
+                },
+            ],
+        )]);
+
+        attach_observed_stack(&mut edges, Ok(trace.clone()));
+
+        assert_eq!(edges[&0x1000][0].observed_stack, Some(trace));
+        assert!(edges[&0x1000][1].observed_stack.is_none());
+    }
+
+    #[test]
+    fn failed_stack_capture_is_recorded_without_failing_edge_scan() {
+        let mut edges = HashMap::from([(
+            0x1000,
+            vec![PointerEdge {
+                target: 0x2000,
+                target_is_free: true,
+                pointer_value: 0x2008,
+                source_address: 0x1010,
+                observed_stack: None,
+                stack_trace_error: None,
+            }],
+        )]);
+
+        attach_observed_stack(&mut edges, Err("unwinding unavailable".into()));
+
+        assert_eq!(
+            edges[&0x1000][0].stack_trace_error.as_deref(),
+            Some("unwinding unavailable")
+        );
+        assert!(edges[&0x1000][0].observed_stack.is_none());
     }
 
     fn make_region(
