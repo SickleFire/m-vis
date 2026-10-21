@@ -3,13 +3,11 @@
 [![Tests](https://github.com/SickleFire/m-vis/actions/workflows/tests.yml/badge.svg)](https://github.com/SickleFire/m-vis/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Welcome to **m-vis**. Memory debugging for developers who just want answers. Simple. Fast. Works everywhere.
+Welcome to **m-vis**, a command-line and terminal interface for exploring the memory of running processes.
 
-Existing tools are either platform specific (Valgrind, WinDbg) or too complex for quick diagnostics. m-vis gives you deep memory insights with a single command across any platform.
+Use it to inspect memory maps, view heap information exposed by the operating system, compare snapshots, and examine bytes at an address. What m-vis can observe depends on the operating system, process permissions, and the target process's allocator.
 
-Our design philosophy is built around simplicity and accessibility because **we believe memory debugging should be accessible, not a PhD requirement.**
-
-**"One command. All platforms. No configuration hell."**
+It is an exploratory diagnostic tool, not a replacement for runtime memory-safety tools or platform debuggers.
 
 ---
 
@@ -50,7 +48,7 @@ mvis leak notepad 10
 
 ## System Architecture
 
-m-vis is built in Rust to provide native, blazing fast performance without overhead. It abstracts away the complex OS level memory APIs into a unified, cross platform scanning engine.
+m-vis is built in Rust and provides a common interface over platform-specific memory APIs. The data and level of detail available can differ between operating systems.
 
 ```mermaid
 graph TD
@@ -80,25 +78,25 @@ graph TD
 
 ## Features & Capabilities
 
-- **Process Scanning**: Inspect memory allocations, mapped regions, and permissions of active processes.
-- **Heap Level Analysis**: Dive deeply into heap structures and allocations for detailed debugging.
+- **Process Scanning**: Inspect reported memory regions, mappings, and permissions of active processes.
+- **Heap Inspection**: View heap ranges and allocation information where the platform API makes it available. Reported ranges may combine multiple allocations.
 - **DLL Tracking**: Monitor and list all dynamic libraries (DLLs/SOs/Dylibs) loaded by a target.
-- **Real time Memory Leak Detection**: Identify and monitor processes with growing, unreleased memory allocations.
-- **Leak Delta Chart**: m-vis includes a real time leak delta chart that visualizes memory allocation trends over time directly in the TUI.
-- **CI/CD Integration**: Automated memory audits, growth rate monitoring, and export reports (JSON/CSV/JUnit) via `mvis ci` and GitHub Actions.
+- **Memory Change Monitoring**: Compare heap snapshots over time and highlight observed growth. Growth is a signal to investigate, not by itself proof of a leak; stable snapshots do not prove that a process is leak-free.
+- **Leak Delta Chart**: The TUI visualizes observed snapshot changes over time.
+- **CI/CD Integration**: Run configured process and memory checks and export reports (JSON/CSV/JUnit) via `mvis ci` and GitHub Actions.
 - **Raw Memory Inspection**: Dump and inspect raw hex/ASCII bytes around arbitrary memory addresses in live processes.
-- **Dangling Pointer Attribution**: Heap scans attach a sampled process stack to edges that still point into freed blocks. The TUI shows a short frame summary in the pointer tree; `mvis save <process> <file>` includes the available frames in the JSON snapshot.
-- **Universal OS Support**: 100% native support for Windows, Linux, and macOS.
+- **Pointer Relationship Exploration**: On supported platforms, heap scans look for pointer-like values that fall within reported heap ranges. Results are best-effort and may miss relationships or be unable to determine allocation status.
+- **Platform Support**: m-vis has platform-specific implementations for Windows, Linux, and macOS. Capabilities, permissions, and inspection detail vary by platform.
 
-Pointer-edge stacks are captured when the scan observes the dangling edge. They describe the target process's execution at that moment; they do not recover the historical call site that originally stored the pointer. Unwinding and symbol resolution depend on platform support, permissions, and available debug symbols. When capture fails, the edge remains in the scan output with a `stack_trace_error` field instead.
+When a pointer edge is identified as targeting a reported freed block, m-vis may attach a sampled stack from the target process at scan time. This is not the historical call site that stored the pointer. Unwinding and symbol resolution depend on platform support, permissions, and available debug symbols. When capture fails, the edge remains in the scan output with a `stack_trace_error` field instead.
 
-Some Windows heap APIs report multiple small allocations as one heap range. For pointers whose source and target fall within the same reported range, the Pointer Tree shows the exact pointer and slot as unresolved rather than claiming that the target is freed. Heap scanning examines up to 64 KiB per reported block for pointer values.
+Heap APIs may group multiple allocations into one reported range. For pointers whose source and target fall within the same range, the Pointer Tree can show the exact pointer value and source slot as unresolved, because the available heap data cannot establish whether the target allocation is live or freed. Pointer scanning examines up to 64 KiB per reported block, so pointers outside the scanned portion may not be found. Treat pointer-tree results as investigative leads, not a complete inventory of pointers or proof of a use-after-free.
 
 ---
 
 ## Core Workflows: How Leak Detection Works
 
-The leak detector doesn't just watch total RAM usage; it takes deep topological snapshots of the process heap and computes exact block level deltas to find silent unreleased memory.
+The leak workflow compares heap snapshots across time and reports changes in the blocks m-vis can observe. Snapshot differences can help identify growth, but allocator behavior, heap-enumeration limits, and changing workloads can affect the results. A reported increase is not conclusive proof of a leak, and no reported increase does not prove that no leak exists.
 
 ```mermaid
 sequenceDiagram
@@ -113,10 +111,10 @@ sequenceDiagram
         OS-->>mvis: Memory Regions & Heap Blocks
         mvis->>mvis: Compute Delta (Diff with previous snapshot)
         
-        alt New allocations found
-            mvis-->>User: Report Exact Growth & Block Count
-        else Stable Memory
-            mvis-->>User: Report "No Leaks Detected"
+        alt Observed block changes
+            mvis-->>User: Report snapshot differences
+        else No observed growth
+            mvis-->>User: Report no growth in observed heap snapshots
         end
     end
 ```
