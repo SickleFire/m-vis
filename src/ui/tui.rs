@@ -54,7 +54,7 @@ fn pointer_edge_stack_summary(edge: &crate::types::PointerEdge) -> Option<String
                     .frames
                     .iter()
                     .take(3)
-                    .map(|frame| frame.symbol.as_str())
+                    .map(|frame| format!("0x{:x} {}", frame.instruction_pointer, frame.symbol))
                     .collect::<Vec<_>>()
                     .join(" <- "),
             )
@@ -3179,6 +3179,32 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    #[test]
+    fn pointer_edge_stack_summary_keeps_instruction_addresses() {
+        let edge = crate::types::PointerEdge {
+            target: 0x2000,
+            target_is_free: true,
+            pointer_value: 0x2008,
+            source_address: 0x1010,
+            observed_stack: Some(crate::core::stack_trace::StackTrace {
+                pid: 42,
+                frames: vec![crate::core::stack_trace::StackFrame {
+                    instruction_pointer: 0x1234,
+                    base_pointer: 0,
+                    return_address: 0,
+                    symbol: "0x1234".into(),
+                }],
+                symbol_warning: None,
+            }),
+            stack_trace_error: None,
+        };
+
+        assert_eq!(
+            pointer_edge_stack_summary(&edge).as_deref(),
+            Some("0x1234 0x1234")
+        );
+    }
 
     // ── helpers ─────────────────────────────────────────────────────────────
 

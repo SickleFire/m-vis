@@ -101,26 +101,37 @@ mod linux {
         let nix_pid = Pid::from_raw(pid as i32);
 
         ptrace::attach(nix_pid).map_err(|e| format!("ptrace attach: {e}"))?;
-        match waitpid(nix_pid, None).map_err(|e| format!("waitpid: {e}"))? {
-            WaitStatus::Stopped(_, _) => {}
-            s => return Err(format!("unexpected stop status: {s:?}")),
+        let capture_result = (|| {
+            match waitpid(nix_pid, None).map_err(|e| format!("waitpid: {e}"))? {
+                WaitStatus::Stopped(_, _) => {}
+                status => return Err(format!("unexpected stop status: {status:?}")),
+            }
+
+            let regs = ptrace::getregs(nix_pid).map_err(|e| format!("getregs: {e}"))?;
+            let (frames, missing_debug_info) = unwind(
+                nix_pid,
+                regs.rip as usize,
+                regs.rsp as usize,
+                regs.rbp as usize,
+                regions,
+            );
+            Ok(StackTrace {
+                pid,
+                frames,
+                symbol_warning: symbol_warning(missing_debug_info),
+            })
+        })();
+        let detach_result =
+            ptrace::detach(nix_pid, None).map_err(|e| format!("ptrace detach: {e}"));
+
+        match (capture_result, detach_result) {
+            (Ok(trace), Ok(())) => Ok(trace),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Err(capture_error), Err(detach_error)) => {
+                Err(format!("{capture_error}; {detach_error}"))
+            }
         }
-
-        let regs = ptrace::getregs(nix_pid).map_err(|e| format!("getregs: {e}"))?;
-        let (frames, missing_debug_info) = unwind(
-            nix_pid,
-            regs.rip as usize,
-            regs.rsp as usize,
-            regs.rbp as usize,
-            regions,
-        );
-
-        ptrace::detach(nix_pid, None).map_err(|e| format!("ptrace detach: {e}"))?;
-        Ok(StackTrace {
-            pid,
-            frames,
-            symbol_warning: symbol_warning(missing_debug_info),
-        })
     }
 
     fn peek(pid: Pid, addr: usize) -> Option<usize> {

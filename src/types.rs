@@ -93,7 +93,8 @@ pub struct PointerEdge {
     /// Address of the pointer slot in the source block.
     #[serde(default)]
     pub source_address: usize,
-    /// A process stack sampled while the edge was observed, not its allocation provenance.
+    /// A process stack sampled during the scan, not this pointer's write or allocation provenance.
+    /// One process snapshot may be shared by multiple dangling edges.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed_stack: Option<crate::core::stack_trace::StackTrace>,
     /// Why `observed_stack` could not be captured, if unwinding was unavailable.

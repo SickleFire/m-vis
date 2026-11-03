@@ -57,6 +57,16 @@ must be one of:
 .B \-h
 Heap mode. Shows heap statistics including block counts, fragmentation analysis,
 allocation size distribution, and the top 10 largest allocations.
+Text output also lists pointer edges that target reported freed blocks with
+their sampled scan-time stack when available. With
+.BR \-json ,
+heap mode emits an object containing
+.B blocks
+and
+.BR pointer_edges ;
+stack frames are included on edges when captured. A sampled stack is not the
+historical instruction that stored the pointer, and unresolved frames retain
+their instruction addresses.
 .TP
 .B \-a
 All regions. Displays a complete memory map with a visual bar chart. Region

@@ -18,6 +18,14 @@ pub struct HeapDiff {
     pub allocation_count: Option<usize>, // None on Linux (not tracked)
 }
 
+#[derive(serde::Serialize)]
+struct HeapScanJson<'a> {
+    blocks: &'a [HeapBlock],
+    pointer_edges: &'a std::collections::HashMap<usize, Vec<PointerEdge>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pointer_edge_scan_error: Option<&'a str>,
+}
+
 /// Scans a process and displays memory information.
 ///
 /// # Arguments
@@ -67,17 +75,19 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
             let used_bytes: usize = used.par_iter().map(|b| b.size).sum();
             let free_bytes: usize = free.par_iter().map(|b| b.size).sum();
 
-            println!("total blocks : {}", blocks.len());
-            println!(
-                "used blocks  : {} ({})",
-                used.len(),
-                format_bytes(used_bytes as u64)
-            );
-            println!(
-                "free blocks  : {} ({})",
-                free.len(),
-                format_bytes(free_bytes as u64)
-            );
+            if !json {
+                println!("total blocks : {}", blocks.len());
+                println!(
+                    "used blocks  : {} ({})",
+                    used.len(),
+                    format_bytes(used_bytes as u64)
+                );
+                println!(
+                    "free blocks  : {} ({})",
+                    free.len(),
+                    format_bytes(free_bytes as u64)
+                );
+            }
 
             let largest_free = blocks
                 .iter()
@@ -92,96 +102,127 @@ pub fn scan_with_modes(mode: &String, pid: u32, json: bool, output: Option<Strin
                 0.0
             };
 
-            println!("fragmentation: {:.1}%", frag);
-            // top 10 largest allocations
-            println!("\ntop 10 largest allocations:");
-            let mut sorted = used.clone();
-            sorted.sort_by(|a, b| b.size.cmp(&a.size));
-            for block in sorted.iter().take(10) {
-                println!(
-                    "  0x{:x}  {}",
-                    block.address,
-                    format_bytes(block.size as u64)
-                );
+            if !json {
+                println!("fragmentation: {:.1}%", frag);
+                // top 10 largest allocations
+                println!("\ntop 10 largest allocations:");
+                let mut sorted = used.clone();
+                sorted.sort_by(|a, b| b.size.cmp(&a.size));
+                for block in sorted.iter().take(10) {
+                    println!(
+                        "  0x{:x}  {}",
+                        block.address,
+                        format_bytes(block.size as u64)
+                    );
+                }
+
+                // size distribution
+                println!("\nsize distribution:");
+                let tiny: usize = used.iter().filter(|b| b.size < 64).count();
+                let small: usize = used
+                    .iter()
+                    .filter(|b| b.size >= 64 && b.size < 1024)
+                    .count();
+                let medium: usize = used
+                    .iter()
+                    .filter(|b| b.size >= 1024 && b.size < 65536)
+                    .count();
+                let large: usize = used
+                    .iter()
+                    .filter(|b| b.size >= 65536 && b.size < 1024 * 1024)
+                    .count();
+                let huge: usize = used.iter().filter(|b| b.size >= 1024 * 1024).count();
+
+                println!("  tiny   (<64B)   : {}", tiny);
+                println!("  small  (<1KB)   : {}", small);
+                println!("  medium (<64KB)  : {}", medium);
+                println!("  large  (<1MB)   : {}", large);
+                println!("  huge   (>=1MB)  : {}", huge);
+
+                // fragmentation assessment
+                println!("\nassessment:");
+                let frag = free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0;
+                if frag > 50.0 {
+                    println!("  \x1b[31mhigh fragmentation — consider heap compaction\x1b[0m");
+                } else if frag > 25.0 {
+                    println!("  \x1b[33mmoderate fragmentation — monitor over time\x1b[0m");
+                } else {
+                    println!("  \x1b[32mlow fragmentation — heap is healthy\x1b[0m");
+                }
+
+                if huge > 0 {
+                    println!(
+                        "  \x1b[33m{} large allocations (>=1MB) detected\x1b[0m",
+                        huge
+                    );
+                }
             }
 
-            // size distribution
-            println!("\nsize distribution:");
-            let tiny: usize = used.iter().filter(|b| b.size < 64).count();
-            let small: usize = used
-                .iter()
-                .filter(|b| b.size >= 64 && b.size < 1024)
-                .count();
-            let medium: usize = used
-                .iter()
-                .filter(|b| b.size >= 1024 && b.size < 65536)
-                .count();
-            let large: usize = used
-                .iter()
-                .filter(|b| b.size >= 65536 && b.size < 1024 * 1024)
-                .count();
-            let huge: usize = used.iter().filter(|b| b.size >= 1024 * 1024).count();
-
-            println!("  tiny   (<64B)   : {}", tiny);
-            println!("  small  (<1KB)   : {}", small);
-            println!("  medium (<64KB)  : {}", medium);
-            println!("  large  (<1MB)   : {}", large);
-            println!("  huge   (>=1MB)  : {}", huge);
-
-            // fragmentation assessment
-            println!("\nassessment:");
-            let frag = free_bytes as f64 / (used_bytes + free_bytes) as f64 * 100.0;
-            if frag > 50.0 {
-                println!("  \x1b[31mhigh fragmentation — consider heap compaction\x1b[0m");
-            } else if frag > 25.0 {
-                println!("  \x1b[33mmoderate fragmentation — monitor over time\x1b[0m");
-            } else {
-                println!("  \x1b[32mlow fragmentation — heap is healthy\x1b[0m");
-            }
-
-            if huge > 0 {
-                println!(
-                    "  \x1b[33m{} large allocations (>=1MB) detected\x1b[0m",
-                    huge
-                );
-            }
-
-            match find_pointer_edges_with_stack(pid, &blocks) {
-                Ok(edges) => {
-                    let mut dangling: Vec<_> = edges
-                        .iter()
-                        .flat_map(|(source, edges)| {
-                            edges
-                                .iter()
-                                .filter(|edge| edge.target_is_free)
-                                .map(|edge| (*source, edge))
-                        })
-                        .collect();
-                    dangling.sort_by_key(|(source, edge)| (*source, edge.target));
-
-                    if !dangling.is_empty() {
-                        println!("\ndangling pointer edges:");
-                        for (source, edge) in dangling {
-                            println!("  0x{source:x} -> 0x{:x}", edge.target);
-                            if let Some(trace) = &edge.observed_stack {
-                                if let Some(warning) = &trace.symbol_warning {
-                                    println!("    warning: {warning}");
-                                }
-                                if trace.frames.is_empty() {
-                                    println!("    observed stack: no frames captured");
-                                } else {
-                                    println!("    observed stack:");
-                                    for (index, frame) in trace.frames.iter().enumerate() {
-                                        println!("      #{index:<2} {}", frame.symbol);
-                                    }
-                                }
-                            } else if let Some(error) = &edge.stack_trace_error {
-                                println!("    observed stack unavailable: {error}");
+            let (edges, scan_error) = match find_pointer_edges_with_stack(pid, &blocks) {
+                Ok(edges) => (edges, None),
+                Err(error) => (std::collections::HashMap::new(), Some(error)),
+            };
+            if json {
+                let result = HeapScanJson {
+                    blocks: &blocks,
+                    pointer_edges: &edges,
+                    pointer_edge_scan_error: scan_error.as_deref(),
+                };
+                match serde_json::to_string_pretty(&result) {
+                    Ok(json_str) => {
+                        if let Some(path) = output {
+                            if let Err(error) = std::fs::write(&path, json_str) {
+                                eprintln!("failed to write {path}: {error}");
+                            } else {
+                                println!("saved to {path}");
                             }
+                        } else {
+                            println!("{json_str}");
+                        }
+                    }
+                    Err(error) => eprintln!("failed to serialize heap scan: {error}"),
+                }
+            } else if let Some(error) = scan_error {
+                eprintln!("pointer edge scan failed: {error}");
+            } else {
+                let mut dangling: Vec<_> = edges
+                    .iter()
+                    .flat_map(|(source, edges)| {
+                        edges
+                            .iter()
+                            .filter(|edge| edge.target_is_free)
+                            .map(|edge| (*source, edge))
+                    })
+                    .collect();
+                dangling.sort_by_key(|(source, edge)| (*source, edge.target));
+
+                if !dangling.is_empty() {
+                    println!("\ndangling pointer edges:");
+                    for (source, edge) in dangling {
+                        println!(
+                            "  source 0x{source:x} slot 0x{:x} value 0x{:x} -> target 0x{:x}",
+                            edge.source_address, edge.pointer_value, edge.target
+                        );
+                        if let Some(trace) = &edge.observed_stack {
+                            if let Some(warning) = &trace.symbol_warning {
+                                println!("    warning: {warning}");
+                            }
+                            if trace.frames.is_empty() {
+                                println!("    observed stack: no frames captured");
+                            } else {
+                                println!("    observed stack (sampled at scan time):");
+                                for (index, frame) in trace.frames.iter().enumerate() {
+                                    println!(
+                                        "      #{index:<2} 0x{:x} {}",
+                                        frame.instruction_pointer, frame.symbol
+                                    );
+                                }
+                            }
+                        } else if let Some(error) = &edge.stack_trace_error {
+                            println!("    observed stack unavailable: {error}");
                         }
                     }
                 }
-                Err(error) => eprintln!("pointer edge scan failed: {error}"),
             }
         }
         "-a" => {
@@ -801,6 +842,44 @@ mod tests {
             Some("unwinding unavailable")
         );
         assert!(edges[&0x1000][0].observed_stack.is_none());
+    }
+
+    #[test]
+    fn heap_scan_json_includes_pointer_edge_stack_frames() {
+        let blocks = vec![make_block(0x1000, 64, false, RegionProtect::ReadWrite)];
+        let edges = HashMap::from([(
+            0x1000,
+            vec![PointerEdge {
+                target: 0x2000,
+                target_is_free: true,
+                pointer_value: 0x2008,
+                source_address: 0x1010,
+                observed_stack: Some(crate::core::stack_trace::StackTrace {
+                    pid: 42,
+                    frames: vec![crate::core::stack_trace::StackFrame {
+                        instruction_pointer: 0x1234,
+                        base_pointer: 0,
+                        return_address: 0,
+                        symbol: "sampled_frame".into(),
+                    }],
+                    symbol_warning: None,
+                }),
+                stack_trace_error: None,
+            }],
+        )]);
+
+        let json = serde_json::to_value(HeapScanJson {
+            blocks: &blocks,
+            pointer_edges: &edges,
+            pointer_edge_scan_error: None,
+        })
+        .unwrap();
+
+        assert_eq!(
+            json["pointer_edges"]["4096"][0]["observed_stack"]["frames"][0]["instruction_pointer"],
+            0x1234
+        );
+        assert!(json.get("pointer_edge_scan_error").is_none());
     }
 
     fn make_region(
