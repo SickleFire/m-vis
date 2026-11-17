@@ -1,4 +1,15 @@
 # Changelog
+## [0.7.0-rc1] - 2026-11-18
+### Added
+- **Dangling Pointer Edge Stack Attribution**: Added stack trace attribution for dangling pointer edges, allowing deep inspection of where unreferenced or dangling allocations originated.
+- **TUI Integration for Pointer Edge Stack Traces**: Enabled viewing stack attribution directly within the TUI pointer analysis and reference tree views.
+- **Intra-Block Windows Heap Pointer Targeting**: Enhanced heap pointer target resolution on Windows to accurately track and handle intra-block pointer targets and improve pointer edge tracking.
+- **Address Ordering**: Added robust memory address ordering for pointer and allocation lists.
+
+### Fixed
+- **Stack Attribution & JSON Output**: Updated JSON export and documentation to include detailed stack trace information for pointer edges.
+- **CLI & Man Page Updates**: Added comprehensive error code references to the CLI help and man page (`doc/mvis.1`).
+
 ## [0.6.0] - 2026-09-29
 ### Added
 - **Reference Pointer Tree** (Linux and Windows)
