@@ -161,31 +161,6 @@ impl MemoryProvider for MacMemory {
 
     fn walk_heap(&self, pid: u32) -> Result<Vec<HeapBlock>, String> {
         let regions = self.walk_regions(pid)?;
-        let mut heap_blocks = Vec::new();
-
-        // On macOS, guard pages follow the live stack (low→high iteration means
-        // guard comes AFTER live stack). We track the previous region's protection
-        // to detect the [live stack] → [guard] pattern and skip accordingly.
-        for r in &regions {
-            if r.protect == RegionProtect::NoAccess {
-                continue;
-            }
-
-            if r.kind == RegionKind::Private
-                && r.protect == RegionProtect::ReadWrite
-                && r.name.is_empty()
-            {
-                heap_blocks.push(HeapBlock {
-                    address: r.base,
-                    size: r.size,
-                    is_free: false,
-                    vm_protect: r.protect.clone(),
-                });
-            }
-        }
-
-        // Apply lookahead fix: remove the last pushed block if the current is NoAccess.
-        // We will just recreate the list to be clean.
         let mut final_heap_blocks = Vec::new();
         for i in 0..regions.len() {
             let r = &regions[i];

@@ -56,6 +56,13 @@ pub fn ci_main(args: &[String]) -> i32 {
     std::thread::sleep(warmup_duration);
 
     // Baseline for leak check — taken once before the loop.
+    let mut sys = System::new_all();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let baseline_rss = if parsed.leak_check {
+        sys.process(sysinfo::Pid::from_u32(pid)).map(|p| p.memory())
+    } else {
+        None
+    };
     let baseline = if parsed.leak_check {
         heap_mode(pid).ok()
     } else {
@@ -69,7 +76,6 @@ pub fn ci_main(args: &[String]) -> i32 {
 
     let start = Instant::now();
     let poll_interval = Duration::from_millis(parsed.sample_interval.unwrap_or(1000));
-    let mut sys = System::new_all();
     let mut exit_code = 0;
     let mut failed_check: Option<(&'static str, String)> = None;
 
@@ -128,11 +134,34 @@ pub fn ci_main(args: &[String]) -> i32 {
 
         // Enforce --leak-check.
         if parsed.leak_check {
-            if let (Some(prev), Some(current)) = (&baseline, &current_heap) {
-                let growth = diff_heap_size(prev, current);
-                if growth > 0 {
-                    eprintln!("error: memory leak detected! Heap grew by {} bytes", growth);
-                    failed_check = Some(("leak-check", format!("heap grew by {} bytes", growth)));
+            let heap_growth = match (&baseline, &current_heap) {
+                (Some(prev), Some(current)) => diff_heap_size(prev, current),
+                _ => 0,
+            };
+
+            if heap_growth > 0 {
+                eprintln!(
+                    "error: memory leak detected! Heap grew by {} bytes",
+                    heap_growth
+                );
+                failed_check = Some(("leak-check", format!("heap grew by {} bytes", heap_growth)));
+                exit_code = 2;
+                break;
+            }
+
+            if heap_growth == 0
+                && cfg!(target_os = "macos")
+                && let (Some(baseline_rss), Some(process)) =
+                    (baseline_rss, sys.process(sysinfo::Pid::from_u32(pid)))
+            {
+                let rss_growth = process.memory().saturating_sub(baseline_rss);
+                if rss_growth > 0 {
+                    eprintln!(
+                        "error: memory leak detected! RSS grew by {} bytes",
+                        rss_growth
+                    );
+                    failed_check =
+                        Some(("leak-check", format!("RSS grew by {} bytes", rss_growth)));
                     exit_code = 2;
                     break;
                 }
