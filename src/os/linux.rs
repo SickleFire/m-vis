@@ -111,50 +111,57 @@ pub fn walk_regions(pid: u32) -> Result<Vec<Region>, String> {
 }
 
 pub fn walk_heap(pid: u32) -> Vec<HeapBlock> {
-    let mut blocks = Vec::new();
-
     let maps_path = format!("/proc/{}/maps", pid);
     let maps_content = match fs::read_to_string(&maps_path) {
         Ok(c) => c,
-        Err(_) => return blocks,
+        Err(_) => return Vec::new(),
     };
+    heap_blocks_from_maps(&maps_content)
+}
 
-    let mut heap_start = 0usize;
-    let mut heap_end = 0usize;
-    let mut vm_protect = RegionProtect::NoAccess;
+fn heap_blocks_from_maps(maps_content: &str) -> Vec<HeapBlock> {
+    let mut blocks = Vec::new();
 
     for line in maps_content.lines() {
-        if !line.contains("[heap]") {
+        let mut parts = line.split_whitespace();
+        let Some(range) = parts.next() else {
+            continue;
+        };
+        let Some(perms) = parts.next() else {
+            continue;
+        };
+
+        if !perms.contains('w') || !perms.contains('p') {
             continue;
         }
 
-        let mut parts = line.splitn(6, ' ');
-        let range = parts.next().unwrap_or("");
-        let perms = parts.next().unwrap_or("");
+        let _offset = parts.next();
+        let _device = parts.next();
+        let _inode = parts.next();
+        let path = parts.collect::<Vec<_>>().join(" ");
 
-        let mut range_parts = range.split('-');
-        heap_start = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
-        heap_end = usize::from_str_radix(range_parts.next().unwrap_or("0"), 16).unwrap_or(0);
+        if !path.is_empty() && path != "[heap]" {
+            continue;
+        }
 
-        vm_protect = if perms.contains('x') {
-            RegionProtect::Execute
-        } else if perms.contains('w') {
-            RegionProtect::ReadWrite
-        } else if perms.contains('r') {
-            RegionProtect::Readonly
-        } else {
-            RegionProtect::NoAccess
+        let Some((start, end)) = range.split_once('-') else {
+            continue;
         };
+        let (Ok(start), Ok(end)) = (
+            usize::from_str_radix(start, 16),
+            usize::from_str_radix(end, 16),
+        ) else {
+            continue;
+        };
+        if end <= start {
+            continue;
+        }
 
-        break; // only one [heap] entry exists, stop looking
-    }
-
-    if heap_start > 0 && heap_end > heap_start {
         blocks.push(HeapBlock {
-            address: heap_start,
-            size: heap_end - heap_start,
+            address: start,
+            size: end - start,
             is_free: false,
-            vm_protect,
+            vm_protect: RegionProtect::ReadWrite,
         });
     }
 
@@ -625,6 +632,22 @@ pub fn read_process_memory_bytes(pid: u32, address: usize, size: usize) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn heap_mapping_parser_includes_brk_and_anonymous_mappings() {
+        let maps = "\
+00602000-00603000 rw-p 00000000 00:00 0 [heap]
+7f0000000000-7f0000100000 rw-p 00000000 00:00 0
+7f0000100000-7f0000200000 r--p 00000000 00:00 0
+7fff00000000-7fff00100000 rw-p 00000000 00:00 0 [stack]
+";
+
+        let blocks = heap_blocks_from_maps(maps);
+
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].size, 0x1000);
+        assert_eq!(blocks[1].size, 0x100000);
+    }
 
     #[test]
     fn parses_proc_maps_line() {

@@ -44,6 +44,22 @@ fn growth_rate_within_limit_exits_0() {
 }
 
 #[test]
+fn leak_check_detects_growth_exits_2() {
+    let status = mvis()
+        .args([
+            "ci",
+            "--leak-check",
+            "--duration",
+            "10",
+            "--spawn",
+            leak_binary().to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(2));
+}
+
+#[test]
 fn max_memory_breach_exits_2() {
     let status = mvis()
         .args([
