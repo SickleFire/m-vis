@@ -11,6 +11,10 @@ inputs:
     description: mvis release version to download (e.g. v0.5.0), defaults to latest
     required: false
     default: latest
+  executable:
+    description: Optional path to an existing mvis executable; skips release download
+    required: false
+    default: ''
 
   # --- target (one of these is required) ---
   pid:
@@ -66,7 +70,7 @@ runs:
   steps:
 
     - name: Download mvis (Linux)
-      if: runner.os == 'Linux'
+      if: runner.os == 'Linux' && inputs.executable == ''
       shell: bash
       run: |
         VERSION="${{ inputs.version }}"
@@ -94,7 +98,7 @@ runs:
         echo "$RUNNER_TEMP/mvis-bin" >> $GITHUB_PATH
 
     - name: Download mvis (Windows)
-      if: runner.os == 'Windows'
+      if: runner.os == 'Windows' && inputs.executable == ''
       shell: pwsh
       run: |
         $version = "${{ inputs.version }}"
@@ -125,7 +129,7 @@ runs:
         echo $destDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - name: Download mvis (macOS)
-      if: runner.os == 'macOS'
+      if: runner.os == 'macOS' && inputs.executable == ''
       shell: bash
       run: |
         VERSION="${{ inputs.version }}"
@@ -170,6 +174,10 @@ runs:
       shell: bash
       run: |
         declare -a ARGS=()
+        MVIS_BIN="${{ inputs.executable }}"
+        if [ -z "$MVIS_BIN" ]; then
+          MVIS_BIN="mvis"
+        fi
 
         # monitoring flags
         [ -n "${{ inputs.max-memory }}" ]           && ARGS+=(--max-memory "${{ inputs.max-memory }}")
@@ -184,9 +192,9 @@ runs:
         [ -n "${{ inputs.format }}" ]               && ARGS+=(--format "${{ inputs.format }}")
         [ -n "${{ inputs.output }}" ]               && ARGS+=(--output "${{ inputs.output }}")
 
-        CMD_PREFIX="mvis ci"
+        CMD_PREFIX="$MVIS_BIN ci"
         if [ "$RUNNER_OS" = "macOS" ]; then
-          CMD_PREFIX="sudo mvis ci"
+          CMD_PREFIX="sudo $MVIS_BIN ci"
         fi
 
         # target
@@ -215,6 +223,10 @@ runs:
       shell: pwsh
       run: |
         $mvisArgs = @()
+        $mvisExecutable = "${{ inputs.executable }}"
+        if (-not $mvisExecutable) {
+          $mvisExecutable = "mvis"
+        }
 
         # monitoring flags
         if ("${{ inputs.max-memory }}")                    { $mvisArgs += "--max-memory", "${{ inputs.max-memory }}" }
@@ -232,13 +244,14 @@ runs:
         # target
         if ("${{ inputs.pid }}") {
           $mvisArgs += "--pid", "${{ inputs.pid }}"
-          & mvis ci @mvisArgs
+          & $mvisExecutable ci @mvisArgs
         } elseif ("${{ inputs.process-name }}") {
           $mvisArgs += "${{ inputs.process-name }}"
-          & mvis ci @mvisArgs
+          & $mvisExecutable ci @mvisArgs
         } elseif ("${{ inputs.spawn }}") {
           # Use Invoke-Expression for spawn so PowerShell splits the command correctly
-          $cmd = "mvis ci"
+          $escapedExecutable = $mvisExecutable -replace "'", "''"
+          $cmd = "'$escapedExecutable' ci"
           foreach ($arg in $mvisArgs) {
             $escaped = $arg -replace "'", "''"
             $cmd += " '$escaped'"

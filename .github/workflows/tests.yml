@@ -66,6 +66,13 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: choco install mingw -y
 
+      - name: Build mvis smoke executable
+        run: cargo build
+
+      - name: Sign mvis smoke executable (macOS)
+        if: matrix.os == 'macos-latest'
+        run: codesign --force --sign - --entitlements mvis.entitlements --timestamp=none target/debug/mvis
+
       - name: Compile leak test binary (Windows)
         if: matrix.os == 'windows-latest'
         run: gcc tests/test_programs/leak_test_c.c -o tests/test_programs/leak_test_c.exe
@@ -120,12 +127,22 @@ jobs:
             echo "path=$GITHUB_WORKSPACE/tests/test_programs/leak_test_c" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve mvis executable path
+        id: mvis
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "path=$(cygpath -w "$GITHUB_WORKSPACE/target/debug/mvis.exe")" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=$GITHUB_WORKSPACE/target/debug/mvis" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Smoke test | max-memory breach
         id: breach
         continue-on-error: true
         uses: ./
         with:
-          version: v0.5.0
+          executable: ${{ steps.mvis.outputs.path }}
           spawn: ${{ steps.bin.outputs.path }}
           max-memory: 10
           duration: 30
@@ -145,7 +162,7 @@ jobs:
         continue-on-error: true
         uses: ./
         with:
-          version: v0.5.0
+          executable: ${{ steps.mvis.outputs.path }}
           spawn: ${{ steps.bin.outputs.path }}
           max-memory: 4096
           duration: 3
@@ -169,7 +186,7 @@ jobs:
         continue-on-error: true
         uses: ./
         with:
-          version: v0.5.0
+          executable: ${{ steps.mvis.outputs.path }}
           spawn: ${{ steps.bin.outputs.path }}
           leak-check: true
           duration: 15
