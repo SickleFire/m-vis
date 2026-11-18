@@ -14,9 +14,9 @@ void* leak_registry[1000];
 int main() {
     int i = 0;
     while (i < 1000) {
-        void* ptr = malloc(64 * 1024);
+        void* ptr = malloc(1024 * 1024);
         if (ptr != NULL) {
-            memset(ptr, 0xAB, 64 * 1024);
+            memset(ptr, 0xAB, 1024 * 1024);
             leak_registry[i] = ptr;
             i++;
         }
